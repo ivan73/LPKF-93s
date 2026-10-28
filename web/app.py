@@ -66,7 +66,8 @@ def short_name(s, maxlen=24):
 # ---------------------------------------------------------------- Seiten
 @app.get('/')
 def index():
-    return render_template('index.html', tools=core.tool_choices(), defaults=asdict(core.Options()),
+    return render_template('index.html', tools=core.tool_choices(), tool_dia=core.tool_diameters(),
+                           defaults=asdict(core.Options()),
                            roles=detect.ROLES)
 
 
@@ -169,7 +170,8 @@ def generate(jid):
     dflt = core.Options()
     opt = core.Options(
         iso_tool=o.get('iso_tool') or dflt.iso_tool,
-        passes=num('passes', int, 1, 6, dflt.passes),
+        iso_width=num('iso_width', float, 0.0, 5.0, dflt.iso_width),
+        passes=num('passes', int, 1, 20, dflt.passes),
         overlap=num('overlap', float, 0.0, 0.9, dflt.overlap),
         rubout_tool=o.get('rubout_tool', dflt.rubout_tool) if o.get('rubout', True) else '',
         cut_tool=o.get('cut_tool') or dflt.cut_tool,

@@ -20,8 +20,10 @@ def main():
     ap.add_argument('-o', '--output', required=True)
     ap.add_argument('--template', default=core.TEMPLATE)
     ap.add_argument('--iso-tool', default=d.iso_tool)
-    ap.add_argument('--passes', type=int, default=d.passes)
-    ap.add_argument('--overlap', type=float, default=d.overlap)
+    ap.add_argument('--iso-width', type=float, default=d.iso_width,
+                    help='Isolationsbreite in mm (ergibt die Kanalzahl); 0 = --passes verwenden')
+    ap.add_argument('--passes', type=int, default=d.passes, help='Anzahl Kanäle, wenn keine --iso-width')
+    ap.add_argument('--overlap', type=float, default=d.overlap, help='Mindestüberlappung der Kanäle (0..0.9)')
     ap.add_argument('--rubout-tool', default=d.rubout_tool, help='"" = kein Ausräumen')
     ap.add_argument('--rubout-overlap', type=float, default=d.rubout_overlap)
     ap.add_argument('--cut-tool', default=d.cut_tool)
@@ -37,7 +39,7 @@ def main():
     rd = lambda f: open(f, encoding='latin1').read() if f else None
     inp = core.Inputs(top=rd(a.top), bottom=rd(a.bottom), outline=rd(a.outline),
                       drills=[(rd(f), True) for f in a.drill] + [(rd(f), False) for f in a.drill_npth])
-    opt = core.Options(iso_tool=a.iso_tool, passes=a.passes, overlap=a.overlap, rubout_tool=a.rubout_tool,
+    opt = core.Options(iso_tool=a.iso_tool, iso_width=a.iso_width, passes=a.passes, overlap=a.overlap, rubout_tool=a.rubout_tool,
                        rubout_overlap=a.rubout_overlap, cut_tool=a.cut_tool, tabs=a.tabs, tab_width=a.tab_width,
                        hole_router=a.hole_router, marking=not a.no_marking, user=a.user)
     res = core.generate(inp, opt, a.template)

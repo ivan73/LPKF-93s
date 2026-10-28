@@ -15,8 +15,9 @@ M = 1e-3  # mm -> m
 @dataclass
 class Options:
     iso_tool: str = 'Universal Cutter 0.2 mm (8 mil)'
-    passes: int = 1
-    overlap: float = 0.3
+    iso_width: float = 0.0     # gewünschte Isolationsbreite in mm; 0 = 'passes' Kanäle verwenden
+    passes: int = 1            # nur wenn iso_width == 0
+    overlap: float = 0.3       # Mindestüberlappung benachbarter Kanäle (Anteil des Fräserdurchmessers)
     rubout_tool: str = 'End Mill 1.0 mm (39 mil)'      # '' = kein Ausräumen
     rubout_overlap: float = 0.2
     cut_tool: str = 'End Mill 2.0 mm (79 mil) long'
@@ -47,6 +48,11 @@ class Result:
 def load_template(path=TEMPLATE):
     tpl = json.load(open(path))
     return [dict(phase=p['phase'], layer=p['layer'], tools=[tuple(t) for t in p['tools']], cmds=[]) for p in tpl]
+
+
+def tool_diameters(path=TEMPLATE):
+    """{Werkzeugname: Durchmesser in mm} – für die Live-Anzeige der Kanalplanung."""
+    return {t[3]: round(t[2] * 1e3, 4) for p in load_template(path) for t in p['tools']}
 
 
 def tool_choices(path=TEMPLATE):
@@ -133,18 +139,36 @@ def tool_of(phase, name):
 
 
 # ---------------------------------------------------------------- Fräsbahnen
-def isolation(copper, board, d_tool, passes, overlap, d_rub, rub_overlap):
+def channel_plan(d_tool, width=0.0, overlap=0.3, passes=1):
+    """Kanalplanung. Liefert dict(offsets, n, width, step, overlap).
+    offsets = Abstand Fräsermitte–Kupferrand je Kanal (mm).
+    Mit width > 0: so viele Kanäle, dass die Breite genau erreicht wird und benachbarte Kanäle
+    sich mindestens um 'overlap' überlappen; die Kanäle werden gleichmäßig verteilt."""
+    r = d_tool / 2
+    overlap = min(max(overlap, 0.0), 0.95)
+    max_step = d_tool * (1 - overlap)
+    if width and width > d_tool + 1e-6:
+        n = 1 + math.ceil((width - d_tool) / max_step - 1e-9)
+        step = (width - d_tool) / (n - 1)
+    else:
+        n = max(1, int(passes)) if not width else 1
+        step = max_step
+    offsets = [r + k * step for k in range(n)]
+    real_w = d_tool + (n - 1) * step
+    return dict(offsets=offsets, n=n, width=real_w, step=step if n > 1 else 0.0,
+                overlap=(1 - step / d_tool) if n > 1 else None)
+
+
+def isolation(copper, board, d_tool, offsets, d_rub, rub_overlap):
     """(Isolationsbahnen, Ausräumbahnen) in mm.
     Ringe werden je Kupferinsel gebildet und nur dort gekappt, wo sie fremdes Kupfer
     anfressen würden – so bleibt auch bei Abstand == Fräserdurchmesser die Trennbahn erhalten."""
     r = d_tool / 2
-    step = d_tool * (1 - overlap)
     TOL = 0.003
     isl = polys(copper)
     tree = Index(isl)
     iso = []
-    for k in range(passes):
-        off = r + k * step
+    for off in offsets:
         bufs = [p.buffer(off, 24) for p in isl]
         for i in range(len(isl)):
             g = MultiLineString(rings(bufs[i])).intersection(board)
@@ -157,7 +181,7 @@ def isolation(copper, board, d_tool, passes, overlap, d_rub, rub_overlap):
     rub = []
     if d_rub:
         R = d_rub / 2
-        iso_w = 2 * r + (passes - 1) * step
+        iso_w = offsets[-1] + r
         # Mittelpunktsbereich des Ausräumfräsers: Schneide endet am Außenrand des Isolationskanals,
         # über den Platinenrand darf er hinaus (dort wird ohnehin weggefräst)
         area = board.buffer(R * 0.9, 16).difference(copper.buffer(iso_w + R, 24))
@@ -245,16 +269,22 @@ def generate(inp: Inputs, opt: Options = None, template=TEMPLATE) -> Result:
         copper, _ = gerber.read_gerber(txt)
         t_iso, d_iso = tool_of(ph, opt.iso_tool)
         t_rub, d_rub = (tool_of(ph, opt.rubout_tool) if opt.rubout_tool else (None, 0))
-        log.append('%s: %d Kupferinseln, Isolation Ø%.2f mm × %d' % (side, len(polys(copper)), d_iso, opt.passes))
+        plan = channel_plan(d_iso, opt.iso_width, opt.overlap, opt.passes)
+        if opt.iso_width and opt.iso_width < d_iso - 1e-6:
+            w = 'Isolationsbreite %.2f mm ist kleiner als der Fräser (Ø%.2f mm) – es wird Fräserbreite verwendet' % (opt.iso_width, d_iso)
+            if w not in warn: warn.append(w); log.append('  Hinweis: ' + w)
+        log.append('%s: %d Kupferinseln, Isolation %.2f mm breit = %d %s mit Ø%.2f mm%s' % (
+            side, len(polys(copper)), plan['width'], plan['n'], 'Kanal' if plan['n'] == 1 else 'Kanäle', d_iso,
+            (', Versatz %.3f mm, Überlappung %.0f %%' % (plan['step'], plan['overlap'] * 100)) if plan['n'] > 1 else ''))
         w = clearance_warnings(copper, d_iso, side)
         warn += w; log += ['  WARNUNG ' + x for x in w]
-        iso, rub = isolation(copper, board, d_iso, opt.passes, opt.overlap, d_rub, opt.rubout_overlap)
+        iso, rub = isolation(copper, board, d_iso, plan['offsets'], d_rub, opt.rubout_overlap)
         iso = order_paths(iso); rub = order_paths(rub, iso[-1][-1] if iso else (0, 0))
         emit_paths(ph['cmds'], t_iso, iso)
         if t_rub: emit_paths(ph['cmds'], t_rub, rub)
         L = lambda ps: sum(LineString(p).length for p in ps)
         log.append('  Isolation: %d Bahnen (%.0f mm), Ausräumen: %d Bahnen (%.0f mm)' % (len(iso), L(iso), len(rub), L(rub)))
-        stats[side] = dict(islands=len(polys(copper)), iso_mm=round(L(iso)), rub_mm=round(L(rub)))
+        stats[side] = dict(channels=plan['n'], width=round(plan['width'], 3), islands=len(polys(copper)), iso_mm=round(L(iso)), rub_mm=round(L(rub)))
 
     # --- Bohren
     all_holes = []

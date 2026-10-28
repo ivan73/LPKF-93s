@@ -45,12 +45,30 @@ Einseitig: nur `--bottom` (oder nur `--top`). Nicht durchkontaktierte Bohrungen:
 | Option | Standard | Bedeutung |
 |---|---|---|
 | `--iso-tool` | `Universal Cutter 0.2 mm (8 mil)` | Isolierfräser (Name wie in der BoardMaster-Bibliothek) |
-| `--passes` / `--overlap` | 1 / 0.3 | Anzahl Isolationskanäle, Überlappung |
+| `--iso-width` | 0 (= Fräserbreite) | Isolationsbreite in mm; daraus wird die Kanalzahl berechnet |
+| `--overlap` | 0.3 | Mindestüberlappung benachbarter Kanäle (30 %) |
+| `--passes` | 1 | feste Kanalzahl, nur ohne `--iso-width` |
 | `--rubout-tool` | `End Mill 1.0 mm (39 mil)` | Freie Flächen ausräumen, `""` = aus |
 | `--cut-tool` | `End Mill 2.0 mm (79 mil) long` | Außenkontur |
 | `--tabs` / `--tab-width` | 0 / 1.0 mm | Haltestege mittig auf den längsten Kanten |
 | `--hole-router` | `Contour Router 2.0 mm (79 mil)` | Bohrungen > 2,4 mm werden kreisförmig gefräst |
 | `--no-marking` | – | Bohrungen nicht vorher ankörnen |
+
+### Isolationsbreite und Überlappung
+
+Aus Breite *W*, Fräser *d* und Mindestüberlappung *ü* ergibt sich die Kanalzahl
+*n* = 1 + ⌈(W − d) / (d · (1 − ü))⌉. Die Kanäle werden gleichmäßig verteilt, sodass die Breite genau stimmt.
+Die tatsächliche Überlappung kann daher größer sein als eingestellt. Beispiele mit 0,2-mm-Fräser und 30 %:
+
+| Breite | Kanäle | Versatz | tatsächliche Überlappung |
+|---|---|---|---|
+| 0,2 mm | 1 | – | – |
+| 0,34 mm | 2 | 0,14 mm | 30 % |
+| 0,4 mm | 3 | 0,10 mm | 50 % |
+| 1,0 mm | 7 | 0,133 mm | 33 % |
+
+Wo zwischen zwei Kupferflächen weniger Platz ist, entfallen die äußeren Kanäle dort automatisch.
+Die Weboberfläche zeigt die Rechnung beim Eintippen live an.
 
 ## Was in der LMD landet
 
