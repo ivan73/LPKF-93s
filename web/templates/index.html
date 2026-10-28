@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ProtoMat Fräsdaten</title>
+<style>
+:root{
+  --laminate:#EEF0EA; --panel:#FFFFFF; --ink:#1D2A26; --muted:#5E6B66; --line:#C9CFC6;
+  --copper:#B5652A; --copper-ink:#FFFFFF; --copper-dark:#8F4E1F;
+  --ok:#2F6B4F; --ok-bg:#E3EFE7; --bad:#B3261E; --bad-bg:#F7E3E1; --warn:#8A5A00; --warn-bg:#FBF0D9;
+  --focus:#2F6B4F;
+  --mono:ui-monospace,"DejaVu Sans Mono","Cascadia Mono",Consolas,monospace;
+  --sans:"Bahnschrift","DIN Alternate","Roboto Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:system-ui,"Segoe UI","Noto Sans","DejaVu Sans",sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --laminate:#151C19; --panel:#1E2723; --ink:#E4E9E5; --muted:#9AA8A1; --line:#34413B;
+  --copper:#D07A3A; --copper-dark:#E89557; --ok:#6FBF94; --ok-bg:#1E3A2C; --bad:#F08A80; --bad-bg:#3F2020;
+  --warn:#E8B95A; --warn-bg:#3A2F15; --focus:#6FBF94;
+}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--laminate);color:var(--ink);font:15px/1.5 var(--body)}
+header{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;padding:18px 24px 10px}
+header h1{font:600 26px/1.1 var(--sans);letter-spacing:.01em;margin:0}
+header p{margin:0;color:var(--muted)}
+header .spacer{flex:1}
+main{display:grid;grid-template-columns:minmax(320px,420px) 1fr;gap:20px;padding:8px 24px 24px;align-items:start}
+@media (max-width:900px){main{grid-template-columns:1fr;padding:8px 16px 16px} header{padding:14px 16px 6px}}
+
+.steps{display:flex;flex-direction:column;gap:14px}
+.step{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px 16px}
+.step h2{font:600 17px/1.2 var(--sans);margin:0 0 10px;display:flex;gap:10px;align-items:center}
+.step h2 .n{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;
+  border:1.5px solid var(--ink);font:600 13px var(--sans)}
+.step.off{opacity:.45}
+.step.off *{pointer-events:none}
+.hint{color:var(--muted);font-size:13px;margin:6px 0 0}
+
+button,.btn{font:600 15px var(--sans);border-radius:4px;border:1.5px solid var(--ink);background:transparent;
+  color:var(--ink);padding:8px 14px;cursor:pointer;text-decoration:none;display:inline-block}
+button:hover,.btn:hover{background:color-mix(in srgb,var(--ink) 8%,transparent)}
+.primary{background:var(--copper);border-color:var(--copper);color:var(--copper-ink);width:100%;padding:11px 14px;font-size:16px}
+.primary:hover{background:var(--copper-dark);border-color:var(--copper-dark)}
+button:disabled{opacity:.6;cursor:progress}
+:focus-visible{outline:2.5px solid var(--focus);outline-offset:2px}
+.link{border:0;padding:0;background:none;color:var(--muted);text-decoration:underline;font:inherit;cursor:pointer}
+
+table{width:100%;border-collapse:collapse;font-size:14px}
+td,th{text-align:left;padding:5px 4px;border-bottom:1px solid var(--line);vertical-align:middle}
+th{font-weight:600;color:var(--muted);font-size:13px}
+td.file{font-family:var(--mono);font-size:12.5px;word-break:break-all}
+td.why{color:var(--muted);font-size:12px}
+select,input[type=number],input[type=text]{font:inherit;font-size:14px;color:var(--ink);background:var(--panel);
+  border:1px solid var(--line);border-radius:4px;padding:5px 6px;max-width:100%}
+select.role{width:100%}
+details summary{cursor:pointer;color:var(--muted);font-size:13px;margin-top:8px}
+
+.form{display:grid;grid-template-columns:auto 1fr;gap:8px 12px;align-items:center}
+.form label{font-size:14px}
+.form .row2{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.form input[type=number]{width:72px}
+.form select{width:100%}
+
+.stage{background:var(--panel);border:1px solid var(--line);border-radius:6px;min-height:520px;position:sticky;top:12px;
+  display:flex;flex-direction:column;max-height:calc(100vh - 24px)}
+.stage.has-preview{min-height:0}
+@media (max-width:900px){.stage{position:relative;top:0;max-height:none;min-height:300px;order:-1}}
+.sidebar{display:none;gap:4px;padding:10px 10px 0}
+.stage.has-preview .sidebar{display:flex}
+.sidebar button{font-size:14px;padding:5px 12px;border-width:1px;border-color:var(--line)}
+.sidebar button[aria-pressed=true]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.sidebar .open{margin-left:auto;font-size:13px;color:var(--muted);align-self:center}
+.drop{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;
+  margin:16px;border:2px dashed var(--line);border-radius:6px;padding:40px 20px;cursor:pointer}
+.drop.over{border-color:var(--copper);background:color-mix(in srgb,var(--copper) 6%,transparent)}
+.drop svg{width:min(340px,70%);height:auto}
+.drop strong{font:600 22px/1.2 var(--sans)}
+.drop span{color:var(--muted);max-width:46ch}
+.preview{display:none;flex:1;padding:10px;overflow:auto;min-height:0}
+.preview img{max-width:100%;max-height:calc(100vh - 110px);height:auto;width:auto;display:block;margin:0 auto;cursor:zoom-in;background:#fff;border-radius:3px}
+@media (max-width:900px){.preview img{max-height:none;width:100%}}
+.stage.has-preview .drop{display:none}
+.stage.has-preview .preview{display:block}
+.busy{position:absolute;inset:0;display:none;place-items:center;background:color-mix(in srgb,var(--panel) 75%,transparent);
+  font:600 18px var(--sans)}
+.stage.working .busy{display:grid}
+.busy div{display:flex;gap:12px;align-items:center}
+.spin{width:22px;height:22px;border:3px solid var(--line);border-top-color:var(--copper);border-radius:50%;animation:s 0.9s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+
+.verdict{border-radius:4px;padding:10px 12px;font:600 16px var(--sans);margin-bottom:10px}
+.verdict.ok{background:var(--ok-bg);color:var(--ok)}
+.verdict.bad{background:var(--bad-bg);color:var(--bad)}
+ul.checks{list-style:none;margin:0 0 10px;padding:0;font-size:13.5px}
+ul.checks li{padding:3px 0 3px 22px;position:relative}
+ul.checks li::before{position:absolute;left:2px;top:3px;font-weight:700}
+ul.checks li.g::before{content:"✓";color:var(--ok)}
+ul.checks li.b::before{content:"✗";color:var(--bad)}
+.warnbox{background:var(--warn-bg);color:var(--warn);border-radius:4px;padding:8px 12px;font-size:13.5px;margin-bottom:10px}
+.warnbox p{margin:2px 0}
+.dl{display:flex;flex-direction:column;gap:6px;margin:12px 0 4px}
+.dl .primary{text-align:center}
+.dl .name{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--muted)}
+.dl .name input{flex:1;font-family:var(--mono)}
+pre.log{font:12.5px/1.45 var(--mono);background:var(--laminate);border-radius:4px;padding:10px;overflow:auto;margin:6px 0 0;white-space:pre-wrap}
+.err{background:var(--bad-bg);color:var(--bad);border-radius:4px;padding:8px 12px;font-size:14px;margin-top:10px;display:none}
+
+section.history{padding:0 24px 32px}
+@media (max-width:900px){section.history{padding:0 16px 24px}}
+section.history h2{font:600 17px var(--sans);margin:4px 0 8px}
+.tablewrap{background:var(--panel);border:1px solid var(--line);border-radius:6px}
+@media (max-width:600px){
+  section.history thead{display:none}
+  section.history tr{display:grid;grid-template-columns:1fr auto;padding:6px 0;border-bottom:1px solid var(--line)}
+  section.history td{border:0;padding:2px 10px}
+  section.history td:nth-child(4){grid-column:1/-1;text-align:left!important;white-space:normal!important}
+}
+section.history td,section.history th{padding:7px 10px}
+.pill{font-size:12.5px;font-weight:600}
+.pill.ok{color:var(--ok)} .pill.bad{color:var(--bad)} .pill.n{color:var(--muted)}
+.empty{color:var(--muted);padding:10px 0}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+<header>
+  <h1>ProtoMat 93S Fräsdaten</h1>
+  <p>Gerber und Bohrdaten aus Fusion oder EAGLE rein, LMD für BoardMaster raus.</p>
+  <span class="spacer"></span>
+  <button id="newJob" class="hide">Neuer Auftrag</button>
+</header>
+
+<main>
+  <div class="steps">
+    <section class="step" id="s1">
+      <h2><span class="n">1</span>Dateien</h2>
+      <button id="pick">ZIP oder Dateien auswählen</button>
+      <input type="file" id="file" multiple class="hide" accept=".zip,.gbr,.ger,.cmp,.sol,.bor,.drd,.drl,.dri,.xln,.txt,.gtl,.gbl,.gko,.gm1,*">
+      <p class="hint">Am einfachsten das CAM-ZIP aus Fusion („CAM-Daten erzeugen“). Einzelne Gerber- und Excellon-Dateien gehen auch.</p>
+      <p class="hint" id="projName"></p>
+    </section>
+
+    <section class="step off" id="s2">
+      <h2><span class="n">2</span>Zuordnung und Werkzeuge</h2>
+      <table id="assign"><thead><tr><th>Datei</th><th style="width:48%">verwenden als</th></tr></thead><tbody></tbody></table>
+      <details id="ignored"><summary></summary><table><tbody></tbody></table></details>
+
+      <h2 style="margin-top:16px;font-size:15px">Werkzeuge</h2>
+      <div class="form" id="opts">
+        <label for="o_iso">Isolieren</label>
+        <select id="o_iso">{% for t in tools['MillingTop'] %}<option{% if t==defaults.iso_tool %} selected{% endif %}>{{t}}</option>{% endfor %}</select>
+
+        <label for="o_passes">Kanäle</label>
+        <div class="row2"><input type="number" id="o_passes" min="1" max="6" value="{{defaults.passes}}">
+          <span class="hint" style="margin:0">mehr Kanäle = breitere Trennung</span></div>
+
+        <label for="o_rub">Ausräumen</label>
+        <div class="row2"><input type="checkbox" id="o_rub" checked>
+          <select id="o_rubtool" style="flex:1">{% for t in tools['MillingTop'] %}<option{% if t==defaults.rubout_tool %} selected{% endif %}>{{t}}</option>{% endfor %}</select></div>
+
+        <label for="o_cut">Kontur</label>
+        <select id="o_cut">{% for t in tools['CuttingOutside'] %}<option{% if t==defaults.cut_tool %} selected{% endif %}>{{t}}</option>{% endfor %}</select>
+
+        <label for="o_tabs">Haltestege</label>
+        <div class="row2"><input type="number" id="o_tabs" min="0" max="12" value="{{defaults.tabs}}">
+          <label for="o_tabw" class="hint" style="margin:0">Breite</label>
+          <input type="number" id="o_tabw" min="0.2" max="5" step="0.1" value="{{defaults.tab_width}}"> mm</div>
+
+        <label for="o_mark">Ankörnen</label>
+        <div class="row2"><input type="checkbox" id="o_mark" checked><span class="hint" style="margin:0">Bohrungen vorher mit 0,2 mm markieren</span></div>
+      </div>
+      <p style="margin:14px 0 0"><button class="primary" id="go">LMD erzeugen</button></p>
+      <div class="err" id="err"></div>
+    </section>
+
+    <section class="step off" id="s3">
+      <h2><span class="n">3</span>Ergebnis</h2>
+      <div id="result"><p class="hint">Hier erscheinen Prüfung und Download.</p></div>
+    </section>
+  </div>
+
+  <div class="stage" id="stage">
+    <div class="drop" id="drop" tabindex="0" role="button" aria-label="Dateien auswählen oder hier ablegen">
+      <svg viewBox="0 0 340 170" aria-hidden="true">
+        <rect x="10" y="10" width="320" height="150" rx="6" fill="none" stroke="currentColor" stroke-opacity=".25" stroke-width="2"/>
+        <g fill="none" stroke="#B5652A" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" opacity=".9">
+          <path d="M60 50 H150 L190 90 H280"/><path d="M60 120 H120 L150 90"/><path d="M220 130 V110 L250 80"/>
+        </g>
+        <g fill="none" stroke="#D0342C" stroke-width="1.4" opacity=".8">
+          <path d="M50 41 H154 L194 81 H290 V99 H186 L146 59 H50 Z"/>
+          <path d="M50 111 H116 L144 83 L156 95 L124 129 H50 Z"/>
+        </g>
+        <g fill="currentColor" fill-opacity=".85"><circle cx="60" cy="50" r="9"/><circle cx="280" cy="90" r="9"/><circle cx="60" cy="120" r="9"/><circle cx="250" cy="80" r="9"/><circle cx="220" cy="130" r="9"/></g>
+        <g fill="var(--panel)"><circle cx="60" cy="50" r="3.5"/><circle cx="280" cy="90" r="3.5"/><circle cx="60" cy="120" r="3.5"/><circle cx="250" cy="80" r="3.5"/><circle cx="220" cy="130" r="3.5"/></g>
+      </svg>
+      <strong>CAM-ZIP hier ablegen</strong>
+      <span>Kupferlagen, Umriss und Bohrungen werden automatisch erkannt. Danach siehst du hier die Fräsbahnen.</span>
+    </div>
+    <div class="sidebar" role="group" aria-label="Seite der Vorschau">
+      <button type="button" data-side="MillingTop" aria-pressed="true">Bestückungsseite</button>
+      <button type="button" data-side="MillingBottom" aria-pressed="false">Lötseite (ungespiegelt)</button>
+      <a class="open" id="pvOpen" target="_blank">groß öffnen</a>
+    </div>
+    <div class="preview"><a id="pvLink" target="_blank" title="Vorschau in voller Größe öffnen"><img id="pv" alt="Vorschau der Fräsbahnen"></a></div>
+    <div class="busy"><div><span class="spin"></span><span id="busyText">Berechne Fräsbahnen …</span></div></div>
+  </div>
+</main>
+
+<section class="history">
+  <h2>Frühere Aufträge</h2>
+  <div id="jobs"><p class="empty">Noch keine Aufträge.</p></div>
+</section>
+
+<script>
+const ROLES = {{ roles|tojson }};
+const $ = s => document.querySelector(s);
+let job = null;
+
+const store = {
+  get(k){ try { return JSON.parse(localStorage.getItem(k)); } catch(e){ return null; } },
+  set(k,v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
+};
+
+function esc(s){ return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function showErr(msg){ const e=$('#err'); e.textContent=msg||''; e.style.display=msg?'block':'none'; }
+function enable(id,on){ $(id).classList.toggle('off',!on); }
+
+// ---------- Optionen merken
+function readOpts(){
+  return { iso_tool:$('#o_iso').value, passes:+$('#o_passes').value, rubout:$('#o_rub').checked,
+    rubout_tool:$('#o_rubtool').value, cut_tool:$('#o_cut').value, tabs:+$('#o_tabs').value,
+    tab_width:+$('#o_tabw').value, marking:$('#o_mark').checked };
+}
+function writeOpts(o){
+  if(!o) return;
+  const set=(id,v)=>{ if(v!==undefined && v!==null){ const el=$(id); if(el.type==='checkbox') el.checked=!!v; else el.value=v; } };
+  set('#o_iso',o.iso_tool); set('#o_passes',o.passes); set('#o_rub',o.rubout ?? !!o.rubout_tool);
+  if(o.rubout_tool) set('#o_rubtool',o.rubout_tool);
+  set('#o_cut',o.cut_tool); set('#o_tabs',o.tabs); set('#o_tabw',o.tab_width); set('#o_mark',o.marking);
+}
+writeOpts(store.get('lpkf-opts'));
+
+// ---------- Upload
+async function upload(files){
+  if(!files.length) return;
+  showErr(''); resetResult();
+  const fd = new FormData(); for(const f of files) fd.append('files', f, f.name);
+  setBusy(true,'Lade hoch und erkenne Lagen …');
+  try{
+    const r = await fetch('api/upload',{method:'POST',body:fd});
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.error||r.statusText);
+    loadJob(j);
+  }catch(e){ showErr('Hochladen fehlgeschlagen: '+e.message); enable('#s2',false); }
+  finally{ setBusy(false); }
+}
+
+function loadJob(j){
+  job = j;
+  $('#newJob').classList.remove('hide');
+  $('#projName').textContent = 'Projekt: '+j.name+' ('+j.files.length+' Dateien)';
+  const used = j.files.filter(f=>f.role!=='ignore'), ign = j.files.filter(f=>f.role==='ignore');
+  const row = f => `<tr><td class="file">${esc(f.name)}<div class="why">${esc(f.reason)}</div></td>
+     <td><select class="role" data-name="${esc(f.name)}">${Object.entries(ROLES).map(([k,v])=>
+       `<option value="${k}"${k===f.role?' selected':''}>${esc(v)}</option>`).join('')}</select></td></tr>`;
+  $('#assign tbody').innerHTML = used.map(row).join('') || '<tr><td colspan="2" class="why">Nichts erkannt – bitte unten zuordnen.</td></tr>';
+  $('#ignored summary').textContent = ign.length ? `${ign.length} weitere Dateien nicht verwendet (Lötstopp, Bestückungsdruck …)` : '';
+  $('#ignored').classList.toggle('hide', !ign.length);
+  $('#ignored tbody').innerHTML = ign.map(row).join('');
+  if(j.options) writeOpts(j.options);
+  enable('#s2',true);
+  if(j.status==='fertig') showResult(j); else { enable('#s3',false); $('#stage').classList.remove('has-preview'); }
+}
+
+// ---------- Erzeugen
+async function generate(){
+  if(!job) return;
+  showErr('');
+  const roles = {}; document.querySelectorAll('select.role').forEach(s=>roles[s.dataset.name]=s.value);
+  const options = readOpts(); store.set('lpkf-opts', options);
+  const lmd_name = $('#lmdName') ? $('#lmdName').value : job.lmd_name;
+  $('#go').disabled = true; setBusy(true,'Berechne Fräsbahnen …');
+  try{
+    const r = await fetch(`api/job/${job.id}/generate`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({roles,options,lmd_name})});
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.error||r.statusText);
+    job = j; stamp = Date.now(); showResult(j); refreshJobs();
+  }catch(e){ showErr(e.message); }
+  finally{ $('#go').disabled=false; setBusy(false); }
+}
+
+function resetResult(){
+  $('#result').innerHTML='<p class="hint">Hier erscheinen Prüfung und Download.</p>';
+  enable('#s3',false); $('#stage').classList.remove('has-preview');
+}
+
+function showResult(j){
+  enable('#s3',true);
+  const v = j.verify||[];
+  const warn = (j.warnings||[]);
+  $('#result').innerHTML = `
+    <div class="verdict ${j.verify_ok?'ok':'bad'}">${j.verify_ok?'Prüfung bestanden':'Prüfung meldet Probleme – so nicht fräsen'}</div>
+    ${warn.length?`<div class="warnbox">${warn.map(w=>`<p>${esc(w)}</p>`).join('')}</div>`:''}
+    <div class="dl">
+      <a class="btn primary" href="job/${j.id}/download" id="dlBtn">${esc(j.lmd_name)} herunterladen</a>
+      <div class="name"><label for="lmdName">Dateiname</label><input id="lmdName" type="text" value="${esc(j.lmd_name.replace(/\.LMD$/i,''))}">.LMD</div>
+      <p class="hint" style="margin:0">Namen ändern und „LMD erzeugen“ erneut drücken. Für alte BoardMaster-Versionen kurz halten.</p>
+    </div>
+    <ul class="checks" style="margin-top:12px">${v.map(c=>`<li class="${c.ok?'g':'b'}">${esc(c.text)}</li>`).join('')}</ul>
+    <details><summary>Protokoll (${esc(j.seconds)} s)</summary><pre class="log">${esc((j.log||[]).join('\n'))}</pre></details>`;
+  const sides = j.sides || ['MillingTop'];
+  document.querySelectorAll('.sidebar button').forEach(b=>b.classList.toggle('hide', !sides.includes(b.dataset.side)));
+  showSide(sides.includes(curSide) ? curSide : sides[0]);
+  $('#stage').classList.add('has-preview');
+}
+
+let curSide = 'MillingTop', stamp = Date.now();
+function showSide(s){
+  curSide = s;
+  document.querySelectorAll('.sidebar button').forEach(b=>b.setAttribute('aria-pressed', b.dataset.side===s));
+  const src = `job/${job.id}/preview/${s}.png?t=${stamp}`;
+  $('#pv').src = src; $('#pvLink').href = src; $('#pvOpen').href = src;
+}
+document.querySelectorAll('.sidebar button').forEach(b=>b.onclick=()=>showSide(b.dataset.side));
+
+function setBusy(on,txt){ $('#stage').classList.toggle('working',on); if(txt) $('#busyText').textContent=txt; }
+
+// ---------- Aufträge
+async function refreshJobs(){
+  const r = await fetch('api/jobs'); const js = await r.json();
+  if(!js.length){ $('#jobs').innerHTML='<p class="empty">Noch keine Aufträge.</p>'; return; }
+  $('#jobs').innerHTML = `<div class="tablewrap"><table><thead><tr><th>Projekt</th><th>Zeit</th><th>Status</th><th></th></tr></thead><tbody>${
+    js.map(x=>`<tr><td>${esc(x.name)}</td><td>${esc(x.created)}</td>
+      <td><span class="pill ${x.status!=='fertig'?'n':(x.ok?'ok':'bad')}">${x.status!=='fertig'?esc(x.status):(x.ok?'geprüft':'Probleme')}</span></td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="link" data-open="${x.id}">öffnen</button>
+        ${x.status==='fertig'?` &nbsp;<a class="link" href="job/${x.id}/download">${esc(x.lmd)}</a>`:''}
+        &nbsp;<button class="link" data-del="${x.id}">löschen</button></td></tr>`).join('')}</tbody></table></div>`;
+}
+$('#jobs').addEventListener('click', async e=>{
+  const o=e.target.dataset.open, d=e.target.dataset.del;
+  if(o){ const r=await fetch(`api/job/${o}`); loadJob(await r.json()); window.scrollTo({top:0,behavior:'smooth'}); }
+  if(d){ await fetch(`api/job/${d}/delete`,{method:'POST'}); if(job&&job.id===d) location.reload(); else refreshJobs(); }
+});
+
+// ---------- Bedienung
+$('#pick').onclick = ()=>$('#file').click();
+$('#drop').onclick = ()=>$('#file').click();
+$('#drop').onkeydown = e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); $('#file').click(); } };
+$('#file').onchange = e=>{ upload([...e.target.files]); e.target.value=''; };
+$('#go').onclick = generate;
+$('#newJob').onclick = ()=>location.reload();
+['dragenter','dragover'].forEach(ev=>document.addEventListener(ev,e=>{ e.preventDefault(); $('#drop').classList.add('over'); }));
+['dragleave','drop'].forEach(ev=>document.addEventListener(ev,e=>{ e.preventDefault(); if(ev==='drop'||!e.relatedTarget) $('#drop').classList.remove('over'); }));
+document.addEventListener('drop',e=>{ if(e.dataTransfer.files.length) upload([...e.dataTransfer.files]); });
+refreshJobs();
+</script>
+</body>
+</html>

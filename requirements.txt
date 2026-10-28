@@ -1,0 +1,4 @@
+shapely>=2.0
+matplotlib>=3.5
+flask>=2.2
+waitress>=2.0

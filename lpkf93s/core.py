@@ -1,0 +1,319 @@
+"""Erzeugung der LMD-Fräsdaten aus Gerber/Excellon (gemeinsam für Kommandozeile und Weboberfläche)."""
+import json, math, os
+from dataclasses import dataclass, field, asdict
+from shapely.geometry import Polygon, MultiPolygon, LineString, MultiLineString, GeometryCollection
+from shapely.ops import unary_union, linemerge, nearest_points, substring
+from shapely.strtree import STRtree
+
+from . import gerber, lmdio
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+TEMPLATE = os.path.join(HERE, 'template.json')
+M = 1e-3  # mm -> m
+
+
+@dataclass
+class Options:
+    iso_tool: str = 'Universal Cutter 0.2 mm (8 mil)'
+    passes: int = 1
+    overlap: float = 0.3
+    rubout_tool: str = 'End Mill 1.0 mm (39 mil)'      # '' = kein Ausräumen
+    rubout_overlap: float = 0.2
+    cut_tool: str = 'End Mill 2.0 mm (79 mil) long'
+    tabs: int = 0
+    tab_width: float = 1.0
+    hole_router: str = 'Contour Router 2.0 mm (79 mil)'
+    marking: bool = True
+    user: str = 'LBS-Meran'
+
+
+@dataclass
+class Inputs:
+    top: str = None          # Gerber-Text Bestückungsseite
+    bottom: str = None       # Gerber-Text Lötseite
+    outline: str = None      # Gerber-Text Umriss
+    drills: list = field(default_factory=list)   # [(excellon_text, plated: bool), ...]
+
+
+@dataclass
+class Result:
+    lmd: bytes
+    log: list
+    warnings: list
+    board: object
+    stats: dict
+
+
+def load_template(path=TEMPLATE):
+    tpl = json.load(open(path))
+    return [dict(phase=p['phase'], layer=p['layer'], tools=[tuple(t) for t in p['tools']], cmds=[]) for p in tpl]
+
+
+def tool_choices(path=TEMPLATE):
+    """Werkzeugnamen je Phase – für Auswahllisten."""
+    out = {}
+    for p in load_template(path):
+        out.setdefault(p['phase'], [t[3] for t in p['tools']])
+    return out
+
+
+# ---------------------------------------------------------------- Geometrie-Helfer
+def polys(g):
+    if g is None or g.is_empty: return []
+    if isinstance(g, Polygon): return [g]
+    if isinstance(g, (MultiPolygon, GeometryCollection)):
+        return [p for x in g.geoms for p in polys(x)]
+    return []
+
+
+def lines(g):
+    if g is None or g.is_empty: return []
+    if isinstance(g, LineString): return [list(g.coords)]
+    if isinstance(g, Polygon): return lines(g.exterior) + [c for r in g.interiors for c in lines(r)]
+    if hasattr(g, 'geoms'): return [c for x in g.geoms for c in lines(x)]
+    return []
+
+
+def rings(g):
+    out = []
+    for p in polys(g):
+        out.append(list(p.exterior.coords))
+        out += [list(r.coords) for r in p.interiors]
+    return out
+
+
+def order_paths(paths, start=(0.0, 0.0)):
+    """Greedy-Nearest-Neighbour; geschlossene Ringe beginnen am nächstgelegenen Punkt."""
+    rest = [p for p in paths if len(p) >= 2]
+    out = []; cur = start
+    while rest:
+        best = None
+        for idx, p in enumerate(rest):
+            if p[0] == p[-1]:
+                k = min(range(len(p) - 1), key=lambda j: (p[j][0] - cur[0]) ** 2 + (p[j][1] - cur[1]) ** 2)
+                cand = ((p[k][0] - cur[0]) ** 2 + (p[k][1] - cur[1]) ** 2, idx, ('ring', k))
+            else:
+                d0 = (p[0][0] - cur[0]) ** 2 + (p[0][1] - cur[1]) ** 2
+                d1 = (p[-1][0] - cur[0]) ** 2 + (p[-1][1] - cur[1]) ** 2
+                cand = (min(d0, d1), idx, ('rev',) if d1 < d0 else ('fwd',))
+            if best is None or cand[0] < best[0]: best = cand
+        _, idx, how = best
+        p = rest.pop(idx)
+        if how[0] == 'ring':
+            k = how[1]; p = p[k:-1] + p[:k] + [p[k]]
+        elif how[0] == 'rev':
+            p = p[::-1]
+        out.append(p); cur = p[-1]
+    return out
+
+
+def emit_paths(cmds, tool, paths):
+    if not paths: return
+    cmds.append((0x10, tool))
+    for p in paths:
+        cmds.append((0x0c, (p[0][0] * M, p[0][1] * M)))
+        last = p[0]
+        for q in p[1:]:
+            if q != last:
+                cmds.append((0x0d, (q[0] * M, q[1] * M))); last = q
+
+
+def emit_circle(cmds, cx, cy, r):
+    """Kreis wie CircuitCAM: Start Mitte, Linie auf Radius, zwei Halbbögen gegen den Uhrzeigersinn."""
+    cmds.append((0x0c, (cx * M, cy * M)))
+    cmds.append((0x0d, ((cx - r) * M, cy * M)))
+    cmds.append((0x11, ((cx + r) * M, cy * M, cx * M, cy * M, r * M)))
+    cmds.append((0x11, ((cx - r) * M, cy * M, cx * M, cy * M, r * M)))
+
+
+def tool_of(phase, name):
+    for t in phase['tools']:
+        if t[3] == name: return t[0], t[2] * 1e3
+    raise ValueError('Werkzeug "%s" fehlt in Phase %s/%s' % (name, phase['phase'], phase['layer']))
+
+
+# ---------------------------------------------------------------- Fräsbahnen
+def isolation(copper, board, d_tool, passes, overlap, d_rub, rub_overlap):
+    """(Isolationsbahnen, Ausräumbahnen) in mm.
+    Ringe werden je Kupferinsel gebildet und nur dort gekappt, wo sie fremdes Kupfer
+    anfressen würden – so bleibt auch bei Abstand == Fräserdurchmesser die Trennbahn erhalten."""
+    r = d_tool / 2
+    step = d_tool * (1 - overlap)
+    TOL = 0.003
+    isl = polys(copper)
+    tree = STRtree(isl) if isl else None
+    iso = []
+    for k in range(passes):
+        off = r + k * step
+        bufs = [p.buffer(off, quad_segs=24) for p in isl]
+        for i in range(len(isl)):
+            g = MultiLineString(rings(bufs[i])).intersection(board)
+            nb = [j for j in tree.query(bufs[i].buffer(off)) if j != i]
+            if nb:
+                g = g.difference(unary_union([isl[j].buffer(off - TOL, quad_segs=24) for j in nb]))
+            iso += lines(g)
+    if iso:
+        iso = lines(linemerge([LineString(p) for p in iso if len(p) >= 2]))
+    rub = []
+    if d_rub:
+        R = d_rub / 2
+        iso_w = 2 * r + (passes - 1) * step
+        # Mittelpunktsbereich des Ausräumfräsers: Schneide endet am Außenrand des Isolationskanals,
+        # über den Platinenrand darf er hinaus (dort wird ohnehin weggefräst)
+        area = board.buffer(R * 0.9, quad_segs=16).difference(copper.buffer(iso_w + R, quad_segs=24))
+        area = area.buffer(-0.01).buffer(0.01)
+        stepR = d_rub * (1 - rub_overlap)
+        n = 0
+        while not area.is_empty and n < 200:
+            rub += rings(area)
+            area = area.buffer(-stepR, quad_segs=16)
+            n += 1
+    simp = lambda ps: [list(LineString(p).simplify(0.001).coords) for p in ps if len(p) >= 2]
+    return simp(iso), simp(rub)
+
+
+def clearance_warnings(copper, d_tool, label):
+    ps = polys(copper)
+    if not ps: return []
+    tree = STRtree(ps); out = []
+    for i, p in enumerate(ps):
+        for j in tree.query(p.buffer(d_tool)):
+            if j <= i: continue
+            dist = p.distance(ps[j])
+            if dist < d_tool - 1e-4:
+                a, b = nearest_points(p, ps[j])
+                out.append((dist, (a.x + b.x) / 2, (a.y + b.y) / 2))
+    return ['%s: Abstand %.3f mm < Fräser %.2f mm bei X=%.2f Y=%.2f – dort wird NICHT getrennt!'
+            % (label, d, d_tool, x, y) for d, x, y in sorted(out)]
+
+
+def drill_tool(ph, d, max_drill):
+    """Nächstgelegener Spiralbohrer (bei Gleichstand der größere); None = fräsen."""
+    if d > max_drill + 0.05:
+        return None
+    best = None
+    for nr, typ, dia, name in ph['tools']:
+        if typ != 1: continue
+        dm = dia * 1e3
+        key = (round(abs(dm - d), 4), -dm)
+        if best is None or key < best[0]: best = (key, nr)
+    return best[1]
+
+
+def tab_paths(path, n, gap):
+    """Kontur in Abschnitte teilen, Stege mittig auf den n längsten geraden Kanten."""
+    c = list(path.coords); pos = 0.0; edges = []
+    for p0, p1 in zip(c, c[1:]):
+        l = math.dist(p0, p1); edges.append((l, pos + l / 2)); pos += l
+    edges.sort(reverse=True)
+    centers = sorted(m for l, m in edges[:n] if l > gap + 2)
+    if not centers:
+        return [c], 0
+    L = path.length; cuts = [(m - gap / 2, m + gap / 2) for m in centers]
+    segs = []
+    for k, (_, e0) in enumerate(cuts):
+        s = e0; e = cuts[(k + 1) % len(cuts)][0]
+        if e <= s: e += L
+        if e <= L:
+            segs.append(list(substring(path, s, e).coords))
+        else:
+            segs.append(list(substring(path, s, L).coords) + list(substring(path, 0, e - L).coords)[1:])
+    return segs, len(centers)
+
+
+# ---------------------------------------------------------------- Hauptfunktion
+def generate(inp: Inputs, opt: Options = None, template=TEMPLATE) -> Result:
+    opt = opt or Options()
+    log, warn = [], []
+    stats = {}
+    phases = load_template(template)
+    P = {(p['phase'], p['layer']): p for p in phases}
+
+    if not inp.outline:
+        raise ValueError('Kein Platinenumriss (Outline/Border/Profile) angegeben')
+    og, l0 = gerber.read_gerber(inp.outline)
+    board, _ = gerber.outline_polygon(l0, og if not og.is_empty else None)
+    bx0, by0, bx1, by1 = board.bounds
+    log.append('Platine: %.2f x %.2f mm (X %.2f..%.2f, Y %.2f..%.2f)' % (bx1 - bx0, by1 - by0, bx0, bx1, by0, by1))
+    stats['size'] = (round(bx1 - bx0, 2), round(by1 - by0, 2))
+
+    # --- Isolation
+    for side, txt, key in (('Top', inp.top, ('MillingTop', 'InsulateTop')),
+                           ('Bottom', inp.bottom, ('MillingBottom', 'InsulateBottom'))):
+        if not txt: continue
+        ph = P[key]
+        copper, _ = gerber.read_gerber(txt)
+        t_iso, d_iso = tool_of(ph, opt.iso_tool)
+        t_rub, d_rub = (tool_of(ph, opt.rubout_tool) if opt.rubout_tool else (None, 0))
+        log.append('%s: %d Kupferinseln, Isolation Ø%.2f mm × %d' % (side, len(polys(copper)), d_iso, opt.passes))
+        w = clearance_warnings(copper, d_iso, side)
+        warn += w; log += ['  WARNUNG ' + x for x in w]
+        iso, rub = isolation(copper, board, d_iso, opt.passes, opt.overlap, d_rub, opt.rubout_overlap)
+        iso = order_paths(iso); rub = order_paths(rub, iso[-1][-1] if iso else (0, 0))
+        emit_paths(ph['cmds'], t_iso, iso)
+        if t_rub: emit_paths(ph['cmds'], t_rub, rub)
+        L = lambda ps: sum(LineString(p).length for p in ps)
+        log.append('  Isolation: %d Bahnen (%.0f mm), Ausräumen: %d Bahnen (%.0f mm)' % (len(iso), L(iso), len(rub), L(rub)))
+        stats[side] = dict(islands=len(polys(copper)), iso_mm=round(L(iso)), rub_mm=round(L(rub)))
+
+    # --- Bohren
+    all_holes = []
+    for txt, plated in inp.drills:
+        holes = gerber.read_excellon(txt)
+        all_holes += holes
+        key = ('DrillingPlated', 'DrillPlated') if plated else ('DrillingUnplated', 'DrillUnplated')
+        ph = P[key]
+        max_drill = max(t[2] for t in ph['tools'] if t[1] == 1) * 1e3
+        t_router, d_router = tool_of(ph, opt.hole_router)
+        groups, milled = {}, []
+        for h in holes:
+            if h[3] == 'slot':
+                w = 'Langloch bei X=%.2f Y=%.2f wird nur als Bohrung am Startpunkt behandelt' % (h[1], h[2])
+                warn.append(w); log.append('  WARNUNG ' + w)
+            t = drill_tool(ph, h[0], max_drill)
+            if t is None: milled.append(h)
+            else: groups.setdefault(t, []).append((h[1], h[2]))
+        for t in sorted(groups):
+            ph['cmds'].append((0x10, t))
+            for p in order_paths([[p, p] for p in groups[t]]):
+                ph['cmds'].append((0x0f, (p[0][0] * M, p[0][1] * M)))
+        if milled:
+            ph['cmds'].append((0x10, t_router))
+            for d, x, y, *_ in milled:
+                r = (d - d_router) / 2
+                if r < 0.05:
+                    w = 'Bohrung Ø%.2f bei X=%.2f Y=%.2f zu klein für %s' % (d, x, y, opt.hole_router)
+                    warn.append(w); log.append('  WARNUNG ' + w); continue
+                emit_circle(ph['cmds'], x, y, r)
+        names = {t[0]: t[3] for t in ph['tools']}
+        log.append('Bohrungen %s: %d' % ('durchkontaktiert' if plated else 'nicht durchkontaktiert', len(holes)))
+        for t in sorted(groups):
+            log.append('  %-30s %3d' % (names[t], len(groups[t])))
+        if milled:
+            log.append('  %-30s %3d (gefräst: %s)' % (names[t_router], len(milled), ', '.join('Ø%.2f' % h[0] for h in milled)))
+        if opt.marking:
+            mk = P[('MarkingDrills', key[1])]
+            mk['cmds'].append((0x10, mk['tools'][0][0]))
+            for p in order_paths([[(h[1], h[2])] * 2 for h in holes]):
+                mk['cmds'].append((0x0f, (p[0][0] * M, p[0][1] * M)))
+    stats['holes'] = len(all_holes)
+
+    # --- Außenkontur
+    ph = P[('CuttingOutside', 'CuttingOutside')]
+    t_cut, d_cut = tool_of(ph, opt.cut_tool)
+    ext = board.buffer(d_cut / 2, quad_segs=24).exterior
+    # Umlaufrichtung wie CircuitCAM: gegen den Uhrzeigersinn
+    path = LineString(ext.coords if ext.is_ccw else list(ext.coords)[::-1])
+    if opt.tabs > 0:
+        cpaths, n = tab_paths(path, opt.tabs, opt.tab_width + d_cut)
+        if n < opt.tabs:
+            w = 'nur %d gerade Kanten lang genug für Haltestege' % n
+            warn.append(w); log.append('  Hinweis: ' + w)
+    else:
+        cpaths, n = [list(path.coords)], 0
+    emit_paths(ph['cmds'], t_cut, [list(LineString(p).simplify(0.002).coords) for p in cpaths])
+    log.append('Außenkontur: %s, %d Haltesteg(e)' % (opt.cut_tool, n))
+
+    data = lmdio.write(lmdio.make_header(opt.user), phases)
+    log.append('LMD: %d Bytes' % len(data))
+    return Result(data, log, warn, board, stats)

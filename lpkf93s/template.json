@@ -1,0 +1,818 @@
+[
+ {
+  "phase": "MillingTop",
+  "layer": "InsulateTop",
+  "tools": [
+   [
+    1,
+    0,
+    0.00019999999494757503,
+    "Universal Cutter 0.2 mm (8 mil)"
+   ],
+   [
+    2,
+    0,
+    0.00022000000171829015,
+    "Universal Cutter 0.22 mm (8.7)"
+   ],
+   [
+    3,
+    0,
+    0.00023999999393709004,
+    "Universal Cutter 0.24 mm (9.4)"
+   ],
+   [
+    4,
+    0,
+    9.999999747378752e-05,
+    "Micro Cutter 0.1 mm (4 mil)"
+   ],
+   [
+    5,
+    0,
+    0.00013000000035390258,
+    "Micro Cutter 0.13 mm (5.1 mil)"
+   ],
+   [
+    6,
+    0,
+    0.0001500000071246177,
+    "End Mill (RF) 0.15 mm (6 mil)"
+   ],
+   [
+    7,
+    0,
+    0.0002500000118743628,
+    "End Mill (RF) 0.25 mm (10 mil)"
+   ],
+   [
+    8,
+    0,
+    0.00039999998989515007,
+    "End Mill (RF) 0.4 mm (16 mil)"
+   ],
+   [
+    9,
+    0,
+    0.0007999999797903001,
+    "End Mill 0.8 mm (31 mil)"
+   ],
+   [
+    10,
+    0,
+    0.0010000000474974513,
+    "End Mill 1.0 mm (39 mil)"
+   ],
+   [
+    11,
+    0,
+    0.0020000000949949026,
+    "End Mill 2.0 mm (79 mil)"
+   ],
+   [
+    12,
+    0,
+    0.003000000026077032,
+    "End Mill 3.0 mm (118 mil)"
+   ]
+  ]
+ },
+ {
+  "phase": "MillingTop",
+  "layer": "BoardOutline",
+  "tools": [
+   [
+    1,
+    0,
+    0.00019999999494757503,
+    "Universal Cutter 0.2 mm (8 mil)"
+   ]
+  ]
+ },
+ {
+  "phase": "MillingTop",
+  "layer": "TextTop",
+  "tools": [
+   [
+    1,
+    0,
+    0.00019999999494757503,
+    "Universal Cutter 0.2 mm (8 mil)"
+   ],
+   [
+    2,
+    0,
+    0.00039999998989515007,
+    "End Mill (RF) 0.4 mm (16 mil)"
+   ]
+  ]
+ },
+ {
+  "phase": "MillingBottom",
+  "layer": "InsulateBottom",
+  "tools": [
+   [
+    1,
+    0,
+    0.00019999999494757503,
+    "Universal Cutter 0.2 mm (8 mil)"
+   ],
+   [
+    2,
+    0,
+    0.00022000000171829015,
+    "Universal Cutter 0.22 mm (8.7)"
+   ],
+   [
+    3,
+    0,
+    0.00023999999393709004,
+    "Universal Cutter 0.24 mm (9.4)"
+   ],
+   [
+    4,
+    0,
+    9.999999747378752e-05,
+    "Micro Cutter 0.1 mm (4 mil)"
+   ],
+   [
+    5,
+    0,
+    0.00013000000035390258,
+    "Micro Cutter 0.13 mm (5.1 mil)"
+   ],
+   [
+    6,
+    0,
+    0.0001500000071246177,
+    "End Mill (RF) 0.15 mm (6 mil)"
+   ],
+   [
+    7,
+    0,
+    0.0002500000118743628,
+    "End Mill (RF) 0.25 mm (10 mil)"
+   ],
+   [
+    8,
+    0,
+    0.00039999998989515007,
+    "End Mill (RF) 0.4 mm (16 mil)"
+   ],
+   [
+    9,
+    0,
+    0.0007999999797903001,
+    "End Mill 0.8 mm (31 mil)"
+   ],
+   [
+    10,
+    0,
+    0.0010000000474974513,
+    "End Mill 1.0 mm (39 mil)"
+   ],
+   [
+    11,
+    0,
+    0.0020000000949949026,
+    "End Mill 2.0 mm (79 mil)"
+   ],
+   [
+    12,
+    0,
+    0.003000000026077032,
+    "End Mill 3.0 mm (118 mil)"
+   ]
+  ]
+ },
+ {
+  "phase": "MillingBottom",
+  "layer": "BoardOutline",
+  "tools": [
+   [
+    1,
+    0,
+    0.00019999999494757503,
+    "Universal Cutter 0.2 mm (8 mil)"
+   ]
+  ]
+ },
+ {
+  "phase": "MillingBottom",
+  "layer": "TextBottom",
+  "tools": [
+   [
+    1,
+    0,
+    0.00019999999494757503,
+    "Universal Cutter 0.2 mm (8 mil)"
+   ],
+   [
+    2,
+    0,
+    0.00039999998989515007,
+    "End Mill (RF) 0.4 mm (16 mil)"
+   ]
+  ]
+ },
+ {
+  "phase": "DrillingPlated",
+  "layer": "DrillPlated",
+  "tools": [
+   [
+    1,
+    1,
+    0.00019999999494757503,
+    "Spiral Drill 0.2 mm"
+   ],
+   [
+    2,
+    1,
+    0.0003000000142492354,
+    "Spiral Drill 0.3 mm"
+   ],
+   [
+    3,
+    1,
+    0.00039999998989515007,
+    "Spiral Drill 0.4 mm"
+   ],
+   [
+    4,
+    1,
+    0.0005000000237487257,
+    "Spiral Drill 0.5 mm"
+   ],
+   [
+    5,
+    1,
+    0.0006000000284984708,
+    "Spiral Drill 0.6 mm"
+   ],
+   [
+    6,
+    1,
+    0.000699999975040555,
+    "Spiral Drill 0.7 mm"
+   ],
+   [
+    7,
+    1,
+    0.0007999999797903001,
+    "Spiral Drill 0.8 mm"
+   ],
+   [
+    8,
+    1,
+    0.0008999999845400453,
+    "Spiral Drill 0.9 mm"
+   ],
+   [
+    9,
+    1,
+    0.0010000000474974513,
+    "Spiral Drill 1.0 mm"
+   ],
+   [
+    10,
+    1,
+    0.0010999999940395355,
+    "Spiral Drill 1.1 mm"
+   ],
+   [
+    11,
+    1,
+    0.0012000000569969416,
+    "Spiral Drill 1.2 mm"
+   ],
+   [
+    12,
+    1,
+    0.0013000000035390258,
+    "Spiral Drill 1.3 mm"
+   ],
+   [
+    13,
+    1,
+    0.00139999995008111,
+    "Spiral Drill 1.4 mm"
+   ],
+   [
+    14,
+    1,
+    0.001500000013038516,
+    "Spiral Drill 1.5 mm"
+   ],
+   [
+    15,
+    1,
+    0.0015999999595806003,
+    "Spiral Drill 1.6 mm"
+   ],
+   [
+    16,
+    1,
+    0.0017000000225380063,
+    "Spiral Drill 1.7 mm"
+   ],
+   [
+    17,
+    1,
+    0.0017999999690800905,
+    "Spiral Drill 1.8 mm"
+   ],
+   [
+    18,
+    1,
+    0.0019000000320374966,
+    "Spiral Drill 1.9 mm"
+   ],
+   [
+    19,
+    1,
+    0.0020000000949949026,
+    "Spiral Drill 2.0 mm"
+   ],
+   [
+    20,
+    1,
+    0.002099999925121665,
+    "Spiral Drill 2.1 mm"
+   ],
+   [
+    21,
+    1,
+    0.002199999988079071,
+    "Spiral Drill 2.2 mm"
+   ],
+   [
+    22,
+    1,
+    0.002300000051036477,
+    "Spiral Drill 2.3 mm"
+   ],
+   [
+    23,
+    1,
+    0.002400000113993883,
+    "Spiral Drill 2.4 mm"
+   ],
+   [
+    24,
+    0,
+    0.0020000000949949026,
+    "Contour Router 2.0 mm (79 mil)"
+   ]
+  ]
+ },
+ {
+  "phase": "DrillingUnplated",
+  "layer": "DrillUnplated",
+  "tools": [
+   [
+    1,
+    1,
+    0.00019999999494757503,
+    "Spiral Drill 0.2 mm"
+   ],
+   [
+    2,
+    1,
+    0.0003000000142492354,
+    "Spiral Drill 0.3 mm"
+   ],
+   [
+    3,
+    1,
+    0.00039999998989515007,
+    "Spiral Drill 0.4 mm"
+   ],
+   [
+    4,
+    1,
+    0.0005000000237487257,
+    "Spiral Drill 0.5 mm"
+   ],
+   [
+    5,
+    1,
+    0.0006000000284984708,
+    "Spiral Drill 0.6 mm"
+   ],
+   [
+    6,
+    1,
+    0.000699999975040555,
+    "Spiral Drill 0.7 mm"
+   ],
+   [
+    7,
+    1,
+    0.0007999999797903001,
+    "Spiral Drill 0.8 mm"
+   ],
+   [
+    8,
+    1,
+    0.0008999999845400453,
+    "Spiral Drill 0.9 mm"
+   ],
+   [
+    9,
+    1,
+    0.0010000000474974513,
+    "Spiral Drill 1.0 mm"
+   ],
+   [
+    10,
+    1,
+    0.0010999999940395355,
+    "Spiral Drill 1.1 mm"
+   ],
+   [
+    11,
+    1,
+    0.0012000000569969416,
+    "Spiral Drill 1.2 mm"
+   ],
+   [
+    12,
+    1,
+    0.0013000000035390258,
+    "Spiral Drill 1.3 mm"
+   ],
+   [
+    13,
+    1,
+    0.00139999995008111,
+    "Spiral Drill 1.4 mm"
+   ],
+   [
+    14,
+    1,
+    0.001500000013038516,
+    "Spiral Drill 1.5 mm"
+   ],
+   [
+    15,
+    1,
+    0.0015999999595806003,
+    "Spiral Drill 1.6 mm"
+   ],
+   [
+    16,
+    1,
+    0.0017000000225380063,
+    "Spiral Drill 1.7 mm"
+   ],
+   [
+    17,
+    1,
+    0.0017999999690800905,
+    "Spiral Drill 1.8 mm"
+   ],
+   [
+    18,
+    1,
+    0.0019000000320374966,
+    "Spiral Drill 1.9 mm"
+   ],
+   [
+    19,
+    1,
+    0.0020000000949949026,
+    "Spiral Drill 2.0 mm"
+   ],
+   [
+    20,
+    1,
+    0.002099999925121665,
+    "Spiral Drill 2.1 mm"
+   ],
+   [
+    21,
+    1,
+    0.002199999988079071,
+    "Spiral Drill 2.2 mm"
+   ],
+   [
+    22,
+    1,
+    0.002300000051036477,
+    "Spiral Drill 2.3 mm"
+   ],
+   [
+    23,
+    1,
+    0.002400000113993883,
+    "Spiral Drill 2.4 mm"
+   ],
+   [
+    24,
+    0,
+    0.0020000000949949026,
+    "Contour Router 2.0 mm (79 mil)"
+   ]
+  ]
+ },
+ {
+  "phase": "Dispense",
+  "layer": "DrillPlated",
+  "tools": [
+   [
+    1,
+    1,
+    0.0005000000237487257,
+    "D Pink Cartridge 0.5 mm"
+   ],
+   [
+    2,
+    1,
+    0.0006000000284984708,
+    "D Pink Cartridge 0.6 mm"
+   ],
+   [
+    3,
+    1,
+    0.000699999975040555,
+    "D Pink Cartridge 0.7 mm"
+   ],
+   [
+    4,
+    1,
+    0.0007999999797903001,
+    "D Green Cartridge 0.8 mm"
+   ],
+   [
+    5,
+    1,
+    0.0008999999845400453,
+    "D Green Cartridge 0.9 mm"
+   ],
+   [
+    6,
+    1,
+    0.0010000000474974513,
+    "D Green Cartridge 1.0 mm"
+   ],
+   [
+    7,
+    1,
+    0.0010999999940395355,
+    "D Amber Cartridge 1.1 mm"
+   ],
+   [
+    8,
+    1,
+    0.0012000000569969416,
+    "D Amber Cartridge 1.2 mm"
+   ],
+   [
+    9,
+    1,
+    0.0013000000035390258,
+    "D Amber Cartridge 1.3 mm"
+   ],
+   [
+    10,
+    1,
+    0.00139999995008111,
+    "D Amber Cartridge 1.4 mm"
+   ]
+  ]
+ },
+ {
+  "phase": "Vacuum",
+  "layer": "DrillPlated",
+  "tools": [
+   [
+    1,
+    1,
+    0.0005000000237487257,
+    "V Green Cartridge 0.5 mm"
+   ],
+   [
+    2,
+    1,
+    0.0006000000284984708,
+    "V Green Cartridge 0.6 mm"
+   ],
+   [
+    3,
+    1,
+    0.000699999975040555,
+    "V Green Cartridge 0.7 mm"
+   ],
+   [
+    4,
+    1,
+    0.0007999999797903001,
+    "V Amber Cartridge 0.8 mm"
+   ],
+   [
+    5,
+    1,
+    0.0008999999845400453,
+    "V Amber Cartridge 0.9 mm"
+   ],
+   [
+    6,
+    1,
+    0.0010000000474974513,
+    "V Amber Cartridge 1.0 mm"
+   ],
+   [
+    7,
+    1,
+    0.0010999999940395355,
+    "V Olive Cartridge 1.1 mm"
+   ],
+   [
+    8,
+    1,
+    0.0012000000569969416,
+    "V Olive Cartridge 1.2 mm"
+   ],
+   [
+    9,
+    1,
+    0.0013000000035390258,
+    "V Olive Cartridge 1.3 mm"
+   ],
+   [
+    10,
+    1,
+    0.00139999995008111,
+    "V Olive Cartridge 1.4 mm"
+   ]
+  ]
+ },
+ {
+  "phase": "CuttingOutside",
+  "layer": "CuttingOutside",
+  "tools": [
+   [
+    1,
+    0,
+    0.0010000000474974513,
+    "Contour Router 1.0 mm (39 mil)"
+   ],
+   [
+    2,
+    0,
+    0.001500000013038516,
+    "Contour Router 1.5 mm (59 mil)"
+   ],
+   [
+    3,
+    0,
+    0.0020000000949949026,
+    "Contour Router 2.0 mm (79 mil)"
+   ],
+   [
+    4,
+    0,
+    0.0024999999441206455,
+    "Contour Router 2.5 mm (98 mil)"
+   ],
+   [
+    5,
+    0,
+    0.003000000026077032,
+    "Contour Router 3.0 mm (118 mil)"
+   ],
+   [
+    6,
+    0,
+    0.0010000000474974513,
+    "End Mill 1.0 mm ( 39 mil) long"
+   ],
+   [
+    7,
+    0,
+    0.0020000000949949026,
+    "End Mill 2.0 mm (79 mil) long"
+   ]
+  ]
+ },
+ {
+  "phase": "CuttingInside",
+  "layer": "CuttingInside",
+  "tools": [
+   [
+    1,
+    0,
+    0.0010000000474974513,
+    "Contour Router 1.0 mm (39 mil)"
+   ],
+   [
+    2,
+    0,
+    0.001500000013038516,
+    "Contour Router 1.5 mm (59 mil)"
+   ],
+   [
+    3,
+    0,
+    0.0020000000949949026,
+    "Contour Router 2.0 mm (79 mil)"
+   ],
+   [
+    4,
+    0,
+    0.0024999999441206455,
+    "Contour Router 2.5 mm (98 mil)"
+   ],
+   [
+    5,
+    0,
+    0.003000000026077032,
+    "Contour Router 3.0 mm (118 mil)"
+   ],
+   [
+    6,
+    0,
+    0.0010000000474974513,
+    "End Mill 1.0 mm ( 39 mil) long"
+   ],
+   [
+    7,
+    0,
+    0.0020000000949949026,
+    "End Mill 2.0 mm (79 mil) long"
+   ]
+  ]
+ },
+ {
+  "phase": "CuttingSoldStopTop",
+  "layer": "SolderMaskTop",
+  "tools": [
+   [
+    1,
+    0,
+    9.999999747378752e-05,
+    "Micro Cutter 0.1 mm (4 mil)"
+   ]
+  ]
+ },
+ {
+  "phase": "CuttingSoldStopBottom",
+  "layer": "SolderMaskBottom",
+  "tools": [
+   [
+    1,
+    0,
+    9.999999747378752e-05,
+    "Micro Cutter 0.1 mm (4 mil)"
+   ]
+  ]
+ },
+ {
+  "phase": "MarkingDrills",
+  "layer": "DrillPlated",
+  "tools": [
+   [
+    1,
+    1,
+    0.00019999999494757503,
+    "Universal Cutter 0.2 mm marking"
+   ]
+  ]
+ },
+ {
+  "phase": "MarkingDrills",
+  "layer": "DrillUnplated",
+  "tools": [
+   [
+    1,
+    1,
+    0.00019999999494757503,
+    "Universal Cutter 0.2 mm marking"
+   ]
+  ]
+ },
+ {
+  "phase": "DispenseSolderPasteTop",
+  "layer": "SolderPasteTop",
+  "tools": [
+   [
+    1,
+    1,
+    0.0006000000284984708,
+    "Green Nozzle for Dots"
+   ]
+  ]
+ },
+ {
+  "phase": "DispenseSolderPasteBottom",
+  "layer": "SolderPasteBottom",
+  "tools": [
+   [
+    1,
+    1,
+    0.0006000000284984708,
+    "Green Nozzle for Dots"
+   ]
+  ]
+ }
+]
