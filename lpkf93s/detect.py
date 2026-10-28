@@ -10,17 +10,21 @@ ROLES = {
     'outline': 'Umriss',
     'drill': 'Bohrungen',
     'drill_npth': 'Bohrungen ohne DK',
+    'mask_top': 'Lötstopp Top',
+    'mask_bottom': 'Lötstopp Bottom',
     'ignore': 'nicht verwenden',
 }
 
 NAME_RULES = [  # (Regex auf Dateiname klein, Rolle)
     (r'npth|non.?plated|unplated', 'drill_npth'),
+    (r'(\.stc$|\.gts$|soldermask_top|solder_mask_top|f[._]mask|top[._ ]?(solder)?mask)', 'mask_top'),
+    (r'(\.sts$|\.gbs$|soldermask_bottom|solder_mask_bottom|b[._]mask|bottom[._ ]?(solder)?mask)', 'mask_bottom'),
     (r'(\.cmp$|\.gtl$|copper_top|f[._]cu|top[._ ]?copper|\.top$|_top\.gbr$|toplayer)', 'top'),
     (r'(\.sol$|\.gbl$|copper_bottom|b[._]cu|bottom[._ ]?copper|\.bot$|_bottom\.gbr$|bottomlayer)', 'bottom'),
     (r'(\.bor$|\.gko$|\.gm1$|\.gml$|profile|outline|edge[._]cuts|border|\.dim$|contour|mill)', 'outline'),
     (r'(\.drd$|\.drl$|\.xln$|\.exc$|\.dri$|\.txt$|drill)', 'drill'),
 ]
-IGNORE_RULES = r'(mask|silk|paste|stc|sts|plc|pls|crm|crs|gto|gbo|gts|gbs|gtp|gbp|assembly|fab|courtyard|v-score|vsc|gbrjob|\.pdf$|\.csv$|\.json$|\.png$|\.jpg$)'
+IGNORE_RULES = r'(silk|paste|plc|pls|crm|crs|gto|gbo|gtp|gbp|assembly|fab|courtyard|v-score|vsc|gbrjob|\.pdf$|\.csv$|\.json$|\.png$|\.jpg$)'
 
 
 def is_excellon(text):
@@ -57,12 +61,18 @@ def detect(filename, text):
             if 'bot' in f: return 'bottom', 'X2: Copper Bottom'
             return 'ignore', 'X2: Innenlage'
         if f[0] in ('profile', 'outline'): return 'outline', 'X2: Profile'
+        if f[0] == 'soldermask':
+            if 'top' in f: return 'mask_top', 'X2: Soldermask Top'
+            if 'bot' in f: return 'mask_bottom', 'X2: Soldermask Bottom'
         return 'ignore', 'X2: ' + ff.group(1)
 
     # EAGLE-Ebenenname
     m = re.search(r'%IN([^*%]+)', text[:2000])
     if m:
         n = m.group(1).lower()
+        if 'stop mask' in n or 'solder mask' in n:
+            if re.search(r'\b(cmp|top)\b', n): return 'mask_top', 'EAGLE: ' + m.group(1)
+            if re.search(r'\b(sol|bot|bottom)\b', n): return 'mask_bottom', 'EAGLE: ' + m.group(1)
         if re.search(r'mask|silk|paste|score|stop', n): return 'ignore', 'EAGLE: ' + m.group(1)
         if 'component' in n or n.strip() in ('top', 'top copper'): return 'top', 'EAGLE: ' + m.group(1)
         if 'solder side' in n or n.strip() in ('bottom', 'bottom copper'): return 'bottom', 'EAGLE: ' + m.group(1)
@@ -80,7 +90,7 @@ def detect(filename, text):
 def detect_all(files):
     """files: {name: text} -> {name: (rolle, grund)}; doppelte Kupfer-/Umrisszuordnungen werden aufgelöst."""
     res = {n: detect(n, t) for n, t in files.items()}
-    for role in ('top', 'bottom', 'outline'):
+    for role in ('top', 'bottom', 'outline', 'mask_top', 'mask_bottom'):
         cands = [n for n, (r, _) in res.items() if r == role]
         if len(cands) > 1:
             # bevorzugt: kürzester Pfad (Fusion legt Kopien in Unterordnern ab), sonst erster

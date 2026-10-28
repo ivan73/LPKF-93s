@@ -25,7 +25,7 @@ Aktualisieren: `git pull && sudo systemctl restart lpkf-93s`
 ### Ablauf auf der Seite
 
 1. In Fusion *CAM-Daten erzeugen* und das ZIP auf die Seite ziehen (oder einzelne Gerber/Excellon-Dateien).
-2. Die Zuordnung prüfen. Kupfer Top/Bottom, Umriss und Bohrungen werden automatisch erkannt,
+2. Die Zuordnung prüfen. Kupfer Top/Bottom, Umriss, Bohrungen und Lötstoppmasken werden automatisch erkannt,
    und zwar über Gerber-X2-Attribute, EAGLE-Ebenennamen und Dateinamen. Werkzeuge wählen.
 3. **LMD erzeugen**. Die Seite rechnet, prüft das Ergebnis selbst und zeigt die Fräsbahnen.
    Nur bei „Prüfung bestanden“ herunterladen und in BoardMaster über *Datei → Import → LMD/LPR* laden.
@@ -48,6 +48,8 @@ Einseitig: nur `--bottom` (oder nur `--top`). Nicht durchkontaktierte Bohrungen:
 | `--iso-width` | 0 (= Fräserbreite) | Isolationsbreite in mm; daraus wird die Kanalzahl berechnet |
 | `--overlap` | 0.3 | Mindestüberlappung benachbarter Kanäle (30 %) |
 | `--passes` | 1 | feste Kanalzahl, nur ohne `--iso-width` |
+| `--pad-width` | 0 (aus) | Pad-Freistellung: um Lötpads so breit freifräsen (mm) |
+| `--mask-top` / `--mask-bottom` | – | Lötstoppmaske, daraus werden die Pads erkannt |
 | `--rubout-tool` | `End Mill 1.0 mm (39 mil)` | Freie Flächen ausräumen, `""` = aus |
 | `--cut-tool` | `End Mill 2.0 mm (79 mil) long` | Außenkontur |
 | `--tabs` / `--tab-width` | 0 / 1.0 mm | Haltestege mittig auf den längsten Kanten |
@@ -69,6 +71,15 @@ Die tatsächliche Überlappung kann daher größer sein als eingestellt. Beispie
 
 Wo zwischen zwei Kupferflächen weniger Platz ist, entfallen die äußeren Kanäle dort automatisch.
 Die Weboberfläche zeigt die Rechnung beim Eintippen live an.
+
+### Pad-Freistellung
+
+Gefräste Platinen haben meist keinen Lötstopplack. Damit beim Löten kein Zinn überzieht, kann um die Lötpads
+breiter freigefräst werden als an den Leiterbahnen, z. B. Isolation 0,4 mm und Pads 0,8 mm.
+Die Pads werden aus der **Lötstoppmaske** erkannt (bedrahtet und SMD; Fusion/EAGLE exportieren sie mit,
+z. B. `.stc`/`.sts` oder `soldermask_top.gbr`). Fehlt sie, dienen die Bohrungen als Ersatz (nur bedrahtete Pads).
+Die zusätzlichen Ringe werden überall gekappt, wo sie Kupfer berühren würden, also auch die Leiterbahn am Pad
+und benachbarte Masseflächen. Breiter als der Abstand im Layout (z. B. Polygon-*Isolate* in EAGLE) wird es daher nicht.
 
 ## Was in der LMD landet
 

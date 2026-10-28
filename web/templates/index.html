@@ -161,6 +161,12 @@ section.history td,section.history th{padding:7px 10px}
         <span></span>
         <p class="hint plan" id="plan" style="margin:-4px 0 2px" aria-live="polite"></p>
 
+        <label for="o_pads">Pad-Freistellung</label>
+        <div class="row2"><input type="checkbox" id="o_pads" checked>
+          <input type="number" id="o_padw" min="0.2" max="5" step="0.1" value="0.8"> mm um Lötpads</div>
+        <span></span>
+        <p class="hint" id="padplan" style="margin:-4px 0 2px" aria-live="polite"></p>
+
         <label for="o_rub">Ausräumen</label>
         <div class="row2"><input type="checkbox" id="o_rub" checked>
           <select id="o_rubtool" style="flex:1">{% for t in tools['MillingTop'] %}<option{% if t==defaults.rubout_tool %} selected{% endif %}>{{t}}</option>{% endfor %}</select></div>
@@ -236,6 +242,7 @@ function enable(id,on){ $(id).classList.toggle('off',!on); }
 // ---------- Optionen merken
 function readOpts(){
   return { iso_tool:$('#o_iso').value, iso_width:+$('#o_width').value, overlap:(+$('#o_overlap').value)/100,
+    pads:$('#o_pads').checked, pad_width:+$('#o_padw').value,
     rubout:$('#o_rub').checked,
     rubout_tool:$('#o_rubtool').value, cut_tool:$('#o_cut').value, tabs:+$('#o_tabs').value,
     tab_width:+$('#o_tabw').value, marking:$('#o_mark').checked };
@@ -248,6 +255,8 @@ function writeOpts(o){
   else if(o.passes && o.overlap!==undefined){ const d=TOOL_DIA[o.iso_tool]||0.2; set('#o_width',+(d+(o.passes-1)*d*(1-o.overlap)).toFixed(3)); }
   if(o.overlap!==undefined && o.overlap!==null) set('#o_overlap',Math.round(o.overlap*100));
   if(o.rubout_tool) set('#o_rubtool',o.rubout_tool);
+  if(o.pads!==undefined) set('#o_pads',o.pads); else if(o.pad_width!==undefined) set('#o_pads',o.pad_width>0);
+  if(o.pad_width) set('#o_padw',o.pad_width);
   set('#o_cut',o.cut_tool); set('#o_tabs',o.tabs); set('#o_tabw',o.tab_width); set('#o_mark',o.marking);
 }
 writeOpts(store.get('lpkf-opts'));
@@ -264,8 +273,23 @@ function showPlan(){
   else if(n===1) txt = `1 Kanal mit Ø${fmt(d,2)} mm.`;
   else txt = `${n} Kanäle mit Ø${fmt(d,2)} mm, Versatz ${fmt(step,3)} mm, Überlappung ${Math.round((1-step/d)*100)} %.`;
   $('#plan').textContent = txt;
+  showPadPlan(Math.max(w||0,d));
 }
-['#o_iso','#o_width','#o_overlap'].forEach(id=>$(id).addEventListener('input',showPlan));
+function showPadPlan(isoW){
+  const on = $('#o_pads').checked, pw = +$('#o_padw').value;
+  $('#o_padw').disabled = !on;
+  const roles = [...document.querySelectorAll('select.role')].map(s=>s.value);
+  const mask = roles.includes('mask_top') || roles.includes('mask_bottom');
+  let txt;
+  if(!on) txt = 'Aus – um Pads wird nur so breit wie überall isoliert.';
+  else if(pw <= isoW+1e-6) txt = 'Nicht breiter als die Isolation – bringt nichts. Breite größer wählen.';
+  else txt = (mask ? 'Pads werden aus der Lötstoppmaske erkannt (bedrahtet und SMD).'
+                   : 'Keine Lötstoppdatei zugeordnet – Pads werden über die Bohrungen erkannt (nur bedrahtete).')
+             + ' Leiterbahnen und fremdes Kupfer bleiben unangetastet.';
+  $('#padplan').textContent = txt;
+}
+['#o_iso','#o_width','#o_overlap','#o_pads','#o_padw'].forEach(id=>$(id).addEventListener('input',showPlan));
+document.addEventListener('change',e=>{ if(e.target.matches('select.role')) showPlan(); });
 showPlan();
 
 // ---------- Upload
@@ -292,10 +316,11 @@ function loadJob(j){
      <td><select class="role" data-name="${esc(f.name)}">${Object.entries(ROLES).map(([k,v])=>
        `<option value="${k}"${k===f.role?' selected':''}>${esc(v)}</option>`).join('')}</select></td></tr>`;
   $('#assign tbody').innerHTML = used.map(row).join('') || '<tr><td colspan="2" class="why">Nichts erkannt – bitte unten zuordnen.</td></tr>';
-  $('#ignored summary').textContent = ign.length ? `${ign.length} weitere Dateien nicht verwendet (Lötstopp, Bestückungsdruck …)` : '';
+  $('#ignored summary').textContent = ign.length ? `${ign.length} weitere Dateien nicht verwendet (Bestückungsdruck, Lotpaste …)` : '';
   $('#ignored').classList.toggle('hide', !ign.length);
   $('#ignored tbody').innerHTML = ign.map(row).join('');
-  if(j.options){ writeOpts(j.options); showPlan(); }
+  if(j.options) writeOpts(j.options);
+  showPlan();
   enable('#s2',true);
   if(j.status==='fertig') showResult(j); else { enable('#s3',false); $('#stage').classList.remove('has-preview'); }
 }

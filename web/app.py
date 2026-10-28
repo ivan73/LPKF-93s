@@ -155,7 +155,7 @@ def generate(jid):
     rd = lambda n: open(os.path.join(d, safe_rel(n)), encoding='latin1').read()
 
     pick = {r: [n for n, rr in roles.items() if rr == r] for r in detect.ROLES}
-    for r in ('top', 'bottom', 'outline'):
+    for r in ('top', 'bottom', 'outline', 'mask_top', 'mask_bottom'):
         if len(pick[r]) > 1:
             return jsonify(error='%s ist mehrfach zugeordnet.' % detect.ROLES[r]), 400
     if not pick['outline']:
@@ -171,6 +171,7 @@ def generate(jid):
     opt = core.Options(
         iso_tool=o.get('iso_tool') or dflt.iso_tool,
         iso_width=num('iso_width', float, 0.0, 5.0, dflt.iso_width),
+        pad_width=num('pad_width', float, 0.0, 5.0, 0.0) if o.get('pads') else 0.0,
         passes=num('passes', int, 1, 20, dflt.passes),
         overlap=num('overlap', float, 0.0, 0.9, dflt.overlap),
         rubout_tool=o.get('rubout_tool', dflt.rubout_tool) if o.get('rubout', True) else '',
@@ -181,7 +182,9 @@ def generate(jid):
     inp = core.Inputs(top=rd(pick['top'][0]) if pick['top'] else None,
                       bottom=rd(pick['bottom'][0]) if pick['bottom'] else None,
                       outline=rd(pick['outline'][0]),
-                      drills=[(rd(n), True) for n in pick['drill']] + [(rd(n), False) for n in pick['drill_npth']])
+                      drills=[(rd(n), True) for n in pick['drill']] + [(rd(n), False) for n in pick['drill_npth']],
+                      mask_top=rd(pick['mask_top'][0]) if pick['mask_top'] else None,
+                      mask_bottom=rd(pick['mask_bottom'][0]) if pick['mask_bottom'] else None)
     lmd_name = short_name(body.get('lmd_name') or meta['lmd_name']) + '.LMD'
 
     if not work_lock.acquire(timeout=300):

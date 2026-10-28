@@ -1,7 +1,7 @@
 """Erzeugung der LMD-Fräsdaten aus Gerber/Excellon (gemeinsam für Kommandozeile und Weboberfläche)."""
 import json, math, os
 from dataclasses import dataclass, field, asdict
-from shapely.geometry import Polygon, MultiPolygon, LineString, MultiLineString, GeometryCollection
+from shapely.geometry import Point, Polygon, MultiPolygon, LineString, MultiLineString, GeometryCollection
 from shapely.ops import unary_union, linemerge, nearest_points, substring
 from .compat import Index
 
@@ -17,6 +17,7 @@ class Options:
     iso_tool: str = 'Universal Cutter 0.2 mm (8 mil)'
     iso_width: float = 0.0     # gewünschte Isolationsbreite in mm; 0 = 'passes' Kanäle verwenden
     passes: int = 1            # nur wenn iso_width == 0
+    pad_width: float = 0.0     # Pad-Freistellung: um Lötpads so breit freifräsen (mm); 0 = aus
     overlap: float = 0.3       # Mindestüberlappung benachbarter Kanäle (Anteil des Fräserdurchmessers)
     rubout_tool: str = 'End Mill 1.0 mm (39 mil)'      # '' = kein Ausräumen
     rubout_overlap: float = 0.2
@@ -34,6 +35,8 @@ class Inputs:
     bottom: str = None       # Gerber-Text Lötseite
     outline: str = None      # Gerber-Text Umriss
     drills: list = field(default_factory=list)   # [(excellon_text, plated: bool), ...]
+    mask_top: str = None     # Lötstoppmaske Top (nur für Pad-Freistellung)
+    mask_bottom: str = None  # Lötstoppmaske Bottom
 
 
 @dataclass
@@ -196,6 +199,35 @@ def isolation(copper, board, d_tool, offsets, d_rub, rub_overlap):
     return simp(iso), simp(rub)
 
 
+def pad_regions(copper, mask_txt=None, holes=()):
+    """Kupfer der Lötpads. Mit Lötstoppmaske: Kupfer innerhalb der Maskenöffnungen (THT + SMD).
+    Ohne Maske: Kupfer um die Bohrungen (nur bedrahtete Bauteile). Liefert (Geometrie, Quelle)."""
+    if mask_txt:
+        mask, _ = gerber.read_gerber(mask_txt)
+        if not mask.is_empty:
+            return copper.intersection(mask), 'Lötstoppmaske'
+    if holes:
+        rings = unary_union([Point(h[1], h[2]).buffer(h[0] / 2 + 0.9, 16) for h in holes])
+        return copper.intersection(rings), 'Bohrungen (nur THT)'
+    return Polygon(), None
+
+
+def pad_clearance(copper, pads, board, d_tool, offsets):
+    """Zusätzliche Ringe um die Pads in den Abständen 'offsets' (Fräsermitte–Padrand).
+    Gekappt überall, wo sie irgendein Kupfer (auch Leiterbahnen am Pad) anfressen würden."""
+    if pads.is_empty or not offsets:
+        return []
+    r = d_tool / 2
+    keep_out = copper.buffer(r + 0.002, 24)   # nie ins Kupfer, auch nicht um µm
+    out = []
+    for off in offsets:
+        g = MultiLineString(rings(pads.buffer(off, 24))).intersection(board).difference(keep_out)
+        out += lines(g)
+    if out:
+        out = lines(linemerge([LineString(p) for p in out if len(p) >= 2]))
+    return [list(LineString(p).simplify(0.001).coords) for p in out if len(p) >= 2]
+
+
 def clearance_warnings(copper, d_tool, label):
     ps = polys(copper)
     if not ps: return []
@@ -261,9 +293,11 @@ def generate(inp: Inputs, opt: Options = None, template=TEMPLATE) -> Result:
     log.append('Platine: %.2f x %.2f mm (X %.2f..%.2f, Y %.2f..%.2f)' % (bx1 - bx0, by1 - by0, bx0, bx1, by0, by1))
     stats['size'] = (round(bx1 - bx0, 2), round(by1 - by0, 2))
 
+    holes_all = [h for txt, _ in inp.drills for h in gerber.read_excellon(txt)]
+
     # --- Isolation
-    for side, txt, key in (('Top', inp.top, ('MillingTop', 'InsulateTop')),
-                           ('Bottom', inp.bottom, ('MillingBottom', 'InsulateBottom'))):
+    for side, txt, key, mask in (('Top', inp.top, ('MillingTop', 'InsulateTop'), inp.mask_top),
+                                 ('Bottom', inp.bottom, ('MillingBottom', 'InsulateBottom'), inp.mask_bottom)):
         if not txt: continue
         ph = P[key]
         copper, _ = gerber.read_gerber(txt)
@@ -279,6 +313,17 @@ def generate(inp: Inputs, opt: Options = None, template=TEMPLATE) -> Result:
         w = clearance_warnings(copper, d_iso, side)
         warn += w; log += ['  WARNUNG ' + x for x in w]
         iso, rub = isolation(copper, board, d_iso, plan['offsets'], d_rub, opt.rubout_overlap)
+        if opt.pad_width and opt.pad_width > plan['width'] + 1e-6:
+            pads, src = pad_regions(copper, mask, holes_all)
+            pplan = channel_plan(d_iso, opt.pad_width, opt.overlap)
+            extra = [o for o in pplan['offsets'] if o > plan['offsets'][-1] + 1e-6]
+            pr = pad_clearance(copper, pads, board, d_iso, extra)
+            iso += pr
+            log.append('  Pad-Freistellung %.2f mm um %d Pads (erkannt über %s): +%d Ringe, %.0f mm' % (
+                pplan['width'], len(polys(pads)), src or '–', len(extra), sum(LineString(p).length for p in pr)))
+            if src is None:
+                w = '%s: Pad-Freistellung nicht möglich – weder Lötstoppmaske noch Bohrungen vorhanden' % side
+                warn.append(w); log.append('  Hinweis: ' + w)
         iso = order_paths(iso); rub = order_paths(rub, iso[-1][-1] if iso else (0, 0))
         emit_paths(ph['cmds'], t_iso, iso)
         if t_rub: emit_paths(ph['cmds'], t_rub, rub)
