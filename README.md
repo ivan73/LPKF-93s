@@ -93,6 +93,20 @@ und benachbarte Masseflächen. Breiter als der Abstand im Layout (z. B. Polygon-
 Phasen- und Werkzeugtabelle stammen aus einer CircuitCAM-4.0-Datei der LBS Meran
 (`lpkf93s/template.json`), damit die Namen zur BoardMaster-Werkzeugbibliothek passen.
 
+## Wegoptimierung
+
+* **Reihenfolge:** Erst wird jeweils die nächstgelegene Bahn bzw. Bohrung gewählt. Danach optimiert ein 2-opt-Verfahren
+  nach, das Teilfolgen umdreht und offene Bahnen wendet. Gestartet wird an der linken unteren Platinenecke.
+* **Einstieg:** Geschlossene Ringe beginnen an dem Punkt, der zwischen Vorgänger und Nachfolger am günstigsten liegt.
+* **Weniger Absenkungen:** Liegt das Ende einer Bahn höchstens 1 mm vom Anfang der nächsten entfernt und berührt
+  die Verbindungsstrecke kein Kupfer, bleibt der Fräser unten. Heben und Senken kostet an der 93S mehr Zeit
+  als ein kurzer Vorschubweg.
+* **Rechenzeit:** Die Nachoptimierung ist je Arbeitsschritt auf 2 s begrenzt. Auf langsamen Rechnern wird sie
+  dadurch etwas weniger gründlich, aber nie langsamer.
+
+Bei der ldatemMAP-Platine (Isolation 0,4 mm, Pad-Freistellung 0,8 mm) ergibt das rund 40 % weniger Absenkungen und
+gut 15 % weniger Leerweg als die einfache Reihenfolge.
+
 ## Sicherheitsprüfungen
 
 * Warnung, wenn zwei Kupferflächen enger liegen als der Isolierfräser breit ist. Dort ist keine Trennung möglich.

@@ -113,7 +113,87 @@ def order_paths(paths, start=(0.0, 0.0)):
         elif how[0] == 'rev':
             p = p[::-1]
         out.append(p); cur = p[-1]
+    return improve_order(out, start)
+
+
+def link_paths(paths, copper, r, max_gap=1.0):
+    """Aufeinanderfolgende Bahnen ohne Abheben verbinden, wenn die Verbindungsstrecke kurz ist
+    und überall mindestens Werkzeugradius (+2 µm) Abstand zum Kupfer hält. Spart Absenkungen."""
+    if not paths:
+        return paths
+    try:
+        from shapely.prepared import prep
+        danger = prep(copper.buffer(r + 0.002, 16))
+        hits = danger.intersects
+    except Exception:
+        danger = copper.buffer(r + 0.002, 16)
+        hits = danger.intersects
+    out = [list(paths[0])]
+    for p in paths[1:]:
+        a, b = out[-1][-1], p[0]
+        d = math.dist(a, b)
+        if d < 1e-9:
+            out[-1].extend(p[1:])
+        elif d <= max_gap and not hits(LineString([a, b])):
+            out[-1].extend(p)
+        else:
+            out.append(list(p))
     return out
+
+
+def _rot_ring(p, k):
+    """Ring so drehen, dass er am Punkt k beginnt (und endet)."""
+    return p[k:-1] + p[:k] + [p[k]]
+
+
+def improve_order(paths, start=(0.0, 0.0), budget=2.0):
+    """Leerwege nachoptimieren: 2-opt (Teilfolgen umkehren, offene Bahnen werden dabei gewendet)
+    im Wechsel mit der Wahl des besten Einstiegspunkts geschlossener Ringe. Zeitbudget in Sekunden."""
+    import time
+    if len(paths) < 3:
+        return paths
+    t_end = time.time() + budget
+    P = list(paths)
+    D = math.dist
+
+    def ends():
+        return [p[0] for p in P], [p[-1] for p in P]
+
+    for _round in range(4):
+        changed = False
+        # --- 2-opt
+        N, X = ends()
+        n = len(P)
+        improved = True
+        while improved and time.time() < t_end:
+            improved = False
+            for i in range(n - 1):
+                prevX = X[i - 1] if i > 0 else start
+                a = D(prevX, N[i])
+                for j in range(i + 1, n):
+                    nxt = N[j + 1] if j + 1 < n else None
+                    old = a + (D(X[j], nxt) if nxt else 0.0)
+                    new = D(prevX, X[j]) + (D(N[i], nxt) if nxt else 0.0)
+                    if new < old - 1e-9:
+                        P[i:j + 1] = [p[::-1] for p in reversed(P[i:j + 1])]
+                        N, X = ends()
+                        a = D(prevX, N[i])
+                        improved = changed = True
+                if time.time() > t_end:
+                    break
+        # --- Einstiegspunkte der Ringe
+        for i, p in enumerate(P):
+            if p[0] != p[-1] or len(p) < 4:
+                continue
+            prevX = P[i - 1][-1] if i > 0 else start
+            nxt = P[i + 1][0] if i + 1 < len(P) else None
+            cost = lambda v: D(prevX, v) + (D(v, nxt) if nxt else 0.0)
+            k = min(range(len(p) - 1), key=lambda m: cost(p[m]))
+            if cost(p[k]) < cost(p[0]) - 1e-9:
+                P[i] = _rot_ring(p, k); changed = True
+        if not changed or time.time() > t_end:
+            break
+    return P
 
 
 def emit_paths(cmds, tool, paths):
@@ -292,6 +372,7 @@ def generate(inp: Inputs, opt: Options = None, template=TEMPLATE) -> Result:
     bx0, by0, bx1, by1 = board.bounds
     log.append('Platine: %.2f x %.2f mm (X %.2f..%.2f, Y %.2f..%.2f)' % (bx1 - bx0, by1 - by0, bx0, bx1, by0, by1))
     stats['size'] = (round(bx1 - bx0, 2), round(by1 - by0, 2))
+    corner = (bx0, by0)   # Startpunkt der Wegoptimierung: linke untere Platinenecke
 
     holes_all = [h for txt, _ in inp.drills for h in gerber.read_excellon(txt)]
 
@@ -324,7 +405,11 @@ def generate(inp: Inputs, opt: Options = None, template=TEMPLATE) -> Result:
             if src is None:
                 w = '%s: Pad-Freistellung nicht möglich – weder Lötstoppmaske noch Bohrungen vorhanden' % side
                 warn.append(w); log.append('  Hinweis: ' + w)
-        iso = order_paths(iso); rub = order_paths(rub, iso[-1][-1] if iso else (0, 0))
+        iso = order_paths(iso, corner); rub = order_paths(rub, iso[-1][-1] if iso else corner)
+        n_before = len(iso) + len(rub)
+        iso = link_paths(iso, copper, d_iso / 2)
+        if d_rub: rub = link_paths(rub, copper, d_rub / 2)
+        log.append('  Absenkungen: %d (ohne Verbinden wären es %d)' % (len(iso) + len(rub), n_before))
         emit_paths(ph['cmds'], t_iso, iso)
         if t_rub: emit_paths(ph['cmds'], t_rub, rub)
         L = lambda ps: sum(LineString(p).length for p in ps)
@@ -350,7 +435,7 @@ def generate(inp: Inputs, opt: Options = None, template=TEMPLATE) -> Result:
             else: groups.setdefault(t, []).append((h[1], h[2]))
         for t in sorted(groups):
             ph['cmds'].append((0x10, t))
-            for p in order_paths([[p, p] for p in groups[t]]):
+            for p in order_paths([[p, p] for p in groups[t]], corner):
                 ph['cmds'].append((0x0f, (p[0][0] * M, p[0][1] * M)))
         if milled:
             ph['cmds'].append((0x10, t_router))
@@ -369,7 +454,7 @@ def generate(inp: Inputs, opt: Options = None, template=TEMPLATE) -> Result:
         if opt.marking:
             mk = P[('MarkingDrills', key[1])]
             mk['cmds'].append((0x10, mk['tools'][0][0]))
-            for p in order_paths([[(h[1], h[2])] * 2 for h in holes]):
+            for p in order_paths([[(h[1], h[2])] * 2 for h in holes], corner):
                 mk['cmds'].append((0x0f, (p[0][0] * M, p[0][1] * M)))
     stats['holes'] = len(all_holes)
 
