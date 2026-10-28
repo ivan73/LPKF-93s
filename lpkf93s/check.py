@@ -1,7 +1,7 @@
 """Unabhängige Prüfung einer LMD-Datei gegen die Gerber-/Excellon-Daten."""
 from shapely.geometry import LineString, Point
 from shapely.ops import unary_union
-from shapely.strtree import STRtree
+from .compat import Index
 from . import gerber, lmdio
 from .preview import paths
 
@@ -25,7 +25,7 @@ def verify(lmd_bytes, top=None, bottom=None, outline=None, drills=()):
             worst = {}
             for t, pts in pls:
                 g = LineString([(x * 1e3, y * 1e3) for x, y in pts]) if len(pts) > 1 else Point(pts[0][0] * 1e3, pts[0][1] * 1e3)
-                cutlist.append(g.buffer(dia[t] / 2, quad_segs=8))
+                cutlist.append(g.buffer(dia[t] / 2, 8))
                 worst[t] = min(worst.get(t, 9), cu.distance(g) - dia[t] / 2)
             what = {'InsulateTop': 'Isolation', 'InsulateBottom': 'Isolation'}.get(p['layer'], p['layer'])
             for t, w in worst.items():
@@ -39,7 +39,7 @@ def verify(lmd_bytes, top=None, bottom=None, outline=None, drills=()):
         if board is not None:
             rest = board.difference(unary_union(cutlist)) if cutlist else board
             isl = list(getattr(cu, 'geoms', [cu]))
-            tree = STRtree(isl); shorts = []
+            tree = Index(isl); shorts = []
             for part in getattr(rest, 'geoms', [rest]):
                 hit = [j for j in tree.query(part) if isl[j].intersection(part).area > 1e-4]
                 if len(hit) > 1:

@@ -15,15 +15,15 @@ QS = 16  # Kreissegmente pro Viertelkreis
 def _aperture_shape(ap):
     kind, p = ap
     if kind == 'C':
-        return Point(0, 0).buffer(p[0] / 2, quad_segs=QS) if p[0] > 0 else None
+        return Point(0, 0).buffer(p[0] / 2, QS) if p[0] > 0 else None
     if kind == 'R':
         return box(-p[0] / 2, -p[1] / 2, p[0] / 2, p[1] / 2)
     if kind == 'O':
         w, h = p[0], p[1]
         r = min(w, h) / 2
         if w >= h:
-            return LineString([(-w / 2 + r, 0), (w / 2 - r, 0)]).buffer(r, quad_segs=QS)
-        return LineString([(0, -h / 2 + r), (0, h / 2 - r)]).buffer(r, quad_segs=QS)
+            return LineString([(-w / 2 + r, 0), (w / 2 - r, 0)]).buffer(r, QS)
+        return LineString([(0, -h / 2 + r), (0, h / 2 - r)]).buffer(r, QS)
     if kind == 'P':
         d, n = p[0], int(p[1]); rot = p[2] if len(p) > 2 else 0
         return Polygon([(d / 2 * math.cos(math.radians(rot + 360 * k / n)),
@@ -140,7 +140,7 @@ def read_gerber(text, keep_zero_width=False):
                     if shape is None:
                         lines0.append((prev, p))
                     elif aps[cur_ap][0] == 'C':
-                        add(LineString([prev, p]).buffer(aps[cur_ap][1][0] / 2, quad_segs=QS))
+                        add(LineString([prev, p]).buffer(aps[cur_ap][1][0] / 2, QS))
                     else:
                         add(_stroke(shape, prev, p))
                     prev = p

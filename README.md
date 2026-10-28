@@ -15,6 +15,8 @@ Zwei Wege, gleiche Rechenlogik:
     cd LPKF-93s
     sudo ./deploy/install.sh
 
+Getestet mit Shapely 1.8 (Raspberry Pi OS Bookworm) und 2.x.
+
 Danach läuft die Seite unter `http://<IP-des-Pi>:8093` und startet beim Booten automatisch.
 Aufträge liegen in `data/` (die letzten 60 werden behalten, `LPKF_KEEP` ändert das).
 

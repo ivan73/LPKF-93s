@@ -3,7 +3,7 @@ import json, math, os
 from dataclasses import dataclass, field, asdict
 from shapely.geometry import Polygon, MultiPolygon, LineString, MultiLineString, GeometryCollection
 from shapely.ops import unary_union, linemerge, nearest_points, substring
-from shapely.strtree import STRtree
+from .compat import Index
 
 from . import gerber, lmdio
 
@@ -141,16 +141,16 @@ def isolation(copper, board, d_tool, passes, overlap, d_rub, rub_overlap):
     step = d_tool * (1 - overlap)
     TOL = 0.003
     isl = polys(copper)
-    tree = STRtree(isl) if isl else None
+    tree = Index(isl)
     iso = []
     for k in range(passes):
         off = r + k * step
-        bufs = [p.buffer(off, quad_segs=24) for p in isl]
+        bufs = [p.buffer(off, 24) for p in isl]
         for i in range(len(isl)):
             g = MultiLineString(rings(bufs[i])).intersection(board)
             nb = [j for j in tree.query(bufs[i].buffer(off)) if j != i]
             if nb:
-                g = g.difference(unary_union([isl[j].buffer(off - TOL, quad_segs=24) for j in nb]))
+                g = g.difference(unary_union([isl[j].buffer(off - TOL, 24) for j in nb]))
             iso += lines(g)
     if iso:
         iso = lines(linemerge([LineString(p) for p in iso if len(p) >= 2]))
@@ -160,13 +160,13 @@ def isolation(copper, board, d_tool, passes, overlap, d_rub, rub_overlap):
         iso_w = 2 * r + (passes - 1) * step
         # Mittelpunktsbereich des Ausräumfräsers: Schneide endet am Außenrand des Isolationskanals,
         # über den Platinenrand darf er hinaus (dort wird ohnehin weggefräst)
-        area = board.buffer(R * 0.9, quad_segs=16).difference(copper.buffer(iso_w + R, quad_segs=24))
+        area = board.buffer(R * 0.9, 16).difference(copper.buffer(iso_w + R, 24))
         area = area.buffer(-0.01).buffer(0.01)
         stepR = d_rub * (1 - rub_overlap)
         n = 0
         while not area.is_empty and n < 200:
             rub += rings(area)
-            area = area.buffer(-stepR, quad_segs=16)
+            area = area.buffer(-stepR, 16)
             n += 1
     simp = lambda ps: [list(LineString(p).simplify(0.001).coords) for p in ps if len(p) >= 2]
     return simp(iso), simp(rub)
@@ -175,7 +175,7 @@ def isolation(copper, board, d_tool, passes, overlap, d_rub, rub_overlap):
 def clearance_warnings(copper, d_tool, label):
     ps = polys(copper)
     if not ps: return []
-    tree = STRtree(ps); out = []
+    tree = Index(ps); out = []
     for i, p in enumerate(ps):
         for j in tree.query(p.buffer(d_tool)):
             if j <= i: continue
@@ -301,7 +301,7 @@ def generate(inp: Inputs, opt: Options = None, template=TEMPLATE) -> Result:
     # --- Außenkontur
     ph = P[('CuttingOutside', 'CuttingOutside')]
     t_cut, d_cut = tool_of(ph, opt.cut_tool)
-    ext = board.buffer(d_cut / 2, quad_segs=24).exterior
+    ext = board.buffer(d_cut / 2, 24).exterior
     # Umlaufrichtung wie CircuitCAM: gegen den Uhrzeigersinn
     path = LineString(ext.coords if ext.is_ccw else list(ext.coords)[::-1])
     if opt.tabs > 0:

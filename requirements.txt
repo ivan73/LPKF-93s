@@ -1,4 +1,4 @@
-shapely>=2.0
+shapely>=1.7   # 1.8 (Debian/Raspberry Pi OS Bookworm) und 2.x getestet
 matplotlib>=3.5
 flask>=2.2
 waitress>=2.0
