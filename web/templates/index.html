@@ -117,10 +117,15 @@ details summary{cursor:pointer;color:var(--muted);font-size:13px;margin-top:8px}
 @media (max-width:900px){.preview img{max-height:none;width:100%}}
 .stage.has-preview .drop{display:none}
 .stage.has-preview .preview{display:block}
-.busy{position:absolute;inset:0;display:none;place-items:center;background:color-mix(in srgb,var(--panel) 75%,transparent);
+.busy{position:absolute;inset:0;display:none;place-items:center;background:color-mix(in srgb,var(--panel) 94%,transparent);
   font:600 18px var(--sans)}
 .stage.working .busy{display:grid}
-.busy div{display:flex;gap:12px;align-items:center}
+.busybox{display:flex;flex-direction:column;gap:10px;align-items:stretch;width:min(420px,80%)}
+.busyrow{display:flex;gap:12px;align-items:center;font:600 17px var(--sans)}
+.pbar{height:10px;border-radius:5px;background:var(--line);overflow:hidden}
+.pbar i{display:block;height:100%;width:0;background:var(--copper);transition:width .4s ease}
+@media (prefers-reduced-motion:reduce){.pbar i{transition:none}}
+.ptime{font-weight:400;margin:0;font-size:13px}
 .spin{width:22px;height:22px;border:3px solid var(--line);border-top-color:var(--copper);border-radius:50%;animation:s 0.9s linear infinite}
 @keyframes s{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.spin{animation:none}}
@@ -269,7 +274,11 @@ section.history td,section.history th{padding:7px 10px}
       <div class="plegend"><span><i style="border-color:#2f6b4f"></i>schon gefräst</span><span><i style="border-color:#b5652a;border-top-width:4px"></i>aktueller Schritt</span><span><i style="border-color:#b5652a;border-top-style:dashed"></i>Leerweg (Fräser oben)</span><span><i style="border-color:#c9cfc6"></i>noch offen</span><label><input type="checkbox" id="pCopper" checked> Kupfer zeigen</label><span>Mausrad zoomt, ziehen verschiebt, Doppelklick setzt zurück</span></div>
     </div>
     <div class="preview"><a id="pvLink" target="_blank" title="Vorschau in voller Größe öffnen"><img id="pv" alt="Vorschau der Fräsbahnen"></a></div>
-    <div class="busy"><div><span class="spin"></span><span id="busyText">Berechne Fräsbahnen …</span></div></div>
+    <div class="busy"><div class="busybox">
+      <div class="busyrow"><span class="spin"></span><span id="busyText">Berechne Fräsbahnen …</span></div>
+      <div class="pbar hide" id="pbar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="pbarFill"></i></div>
+      <div class="ptime hint" id="ptime"></div>
+    </div></div>
   </div>
 </main>
 
@@ -389,15 +398,42 @@ async function generate(){
   const roles = {}; document.querySelectorAll('select.role').forEach(s=>roles[s.dataset.name]=s.value);
   const options = readOpts(); store.set('lpkf-opts', options);
   const lmd_name = $('#lmdName') ? $('#lmdName').value : job.lmd_name;
-  $('#go').disabled = true; setBusy(true,'Berechne Fräsbahnen …');
+  $('#go').disabled = true; setBusy(true,'Starte Berechnung …'); showProgress(0, '', 0);
   try{
     const r = await fetch(`api/job/${job.id}/generate`,{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({roles,options,lmd_name})});
     const j = await r.json();
     if(!r.ok) throw new Error(j.error||r.statusText);
-    job = j; stamp = Date.now(); showResult(j); refreshJobs();
+    await waitForJob(job.id);
+    const m = await (await fetch(`api/job/${job.id}`)).json();
+    job = m; stamp = Date.now(); showResult(m); refreshJobs();
   }catch(e){ showErr(e.message); }
-  finally{ $('#go').disabled=false; setBusy(false); }
+  finally{ $('#go').disabled=false; setBusy(false); $('#pbar').classList.add('hide'); $('#ptime').textContent=''; }
+}
+
+// Fortschritt der Hintergrundberechnung abfragen, bis sie fertig ist
+function waitForJob(id){
+  return new Promise((resolve, reject)=>{
+    let fails = 0;
+    const tick = async ()=>{
+      try{
+        const p = await (await fetch(`api/job/${id}/progress`)).json(); fails = 0;
+        if(p.state==='fertig'){ showProgress(1,'fertig',p.elapsed); resolve(); return; }
+        if(p.state==='fehler'){ reject(new Error(p.text||'Verarbeitung fehlgeschlagen')); return; }
+        showProgress(p.frac||0, p.state==='wartet' ? 'Wartet auf einen anderen Auftrag …' : (p.text||''), p.elapsed||0);
+      }catch(e){ if(++fails > 20){ reject(new Error('Keine Verbindung zum Raspberry Pi')); return; } }
+      setTimeout(tick, 500);
+    };
+    tick();
+  });
+}
+function showProgress(frac, text, elapsed){
+  const pct = Math.round(frac*100);
+  $('#pbar').classList.remove('hide'); $('#pbarFill').style.width = pct+'%'; $('#pbar').setAttribute('aria-valuenow', pct);
+  $('#busyText').textContent = text ? `${text} (${pct} %)` : 'Berechne Fräsbahnen …';
+  let tt = elapsed ? `läuft seit ${fmtTime(elapsed)}` : '';
+  if(elapsed > 3 && frac > 0.05 && frac < 1) tt += ` · noch etwa ${fmtTime(elapsed*(1-frac)/frac)}`;
+  $('#ptime').textContent = tt;
 }
 
 function resetResult(){

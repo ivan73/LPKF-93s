@@ -20,6 +20,8 @@ os.makedirs(JOBS, exist_ok=True)
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 40 * 1024 * 1024
 work_lock = threading.Lock()          # der Pi rechnet immer nur einen Auftrag gleichzeitig
+progress_lock = threading.Lock()
+PROGRESS = {}                         # jid -> dict(state, frac, text, started)
 MAX_FILE = 15 * 1024 * 1024
 
 
@@ -189,44 +191,80 @@ def generate(jid):
                       mask_bottom=rd(pick['mask_bottom'][0]) if pick['mask_bottom'] else None)
     lmd_name = short_name(body.get('lmd_name') or meta['lmd_name']) + '.LMD'
 
-    if not work_lock.acquire(timeout=300):
-        return jsonify(error='Der Raspberry Pi ist gerade mit einem anderen Auftrag beschäftigt. Bitte gleich nochmal versuchen.'), 503
-    t0 = time.time()
-    try:
-        res = core.generate(inp, opt)
-        ok, lines = check.verify(res.lmd, inp.top, inp.bottom, inp.outline, [t for t, _ in inp.drills])
-        pngs = {s: preview.render(res.lmd, res.board, dpi=110, only=s) for s in preview.sides_present(res.lmd)}
-    except Exception as e:  # Fehler in Eingabedaten verständlich zurückgeben
-        meta.update(status='Fehler', error=str(e)); save_meta(jid, meta)
-        return jsonify(error='Verarbeitung fehlgeschlagen: %s' % e), 422
-    finally:
-        work_lock.release()
+    with progress_lock:
+        st = PROGRESS.get(jid)
+        if st and st['state'] in ('wartet', 'rechnet'):
+            return jsonify(error='Dieser Auftrag wird bereits berechnet.'), 409
+        PROGRESS[jid] = dict(state='wartet', frac=0.0, text='wartet auf freien Rechner …', started=time.time())
+    meta.update(status='rechnet'); save_meta(jid, meta)
+    threading.Thread(target=_run_job, args=(jid, inp, opt, roles, lmd_name), daemon=True).start()
+    return jsonify(started=True), 202
 
-    jd = job_dir(jid)
-    with open(os.path.join(jd, 'result.LMD'), 'wb') as f: f.write(res.lmd)
-    for s, png in pngs.items():
-        with open(os.path.join(jd, 'preview_%s.png' % s), 'wb') as f: f.write(png)
-    # Kupfer je Seite für die Vektoransicht (vereinfacht, je Polygon: Außenring + Löcher als flache Koordinatenlisten)
-    cu_json = {}
-    for side, geom in res.copper.items():
-        rings = []
-        for pg in core.polys(geom.simplify(0.003)):
-            rings.append([[round(v, 3) for xy in r.coords for v in xy] for r in [pg.exterior] + list(pg.interiors)])
-        cu_json[side] = rings
-    with open(os.path.join(jd, 'copper.json'), 'w') as f:
-        json.dump(cu_json, f, separators=(',', ':'))
-    with open(os.path.join(jd, 'board.json'), 'w') as f:
-        json.dump([[round(x, 3), round(y, 3)] for x, y in res.board.exterior.coords], f)
-    seqp = os.path.join(jd, 'sequence.json')
-    if os.path.exists(seqp): os.remove(seqp)
-    for fm in meta['files']:
-        fm['role'] = roles.get(fm['name'], fm['role'])
-    meta.update(status='fertig', lmd_name=lmd_name, sides=list(pngs), options=asdict(opt), log=res.log, warnings=res.warnings,
-                verify=[dict(ok=g, text=t, loc=l) for g, t, l in lines], verify_ok=ok, stats=res.stats,
-                marks=res.marks,
-                seconds=round(time.time() - t0, 1), error=None)
-    save_meta(jid, meta)
-    return jsonify(meta)
+
+def _set_progress(jid, **kw):
+    with progress_lock:
+        PROGRESS.setdefault(jid, {}).update(kw)
+
+
+def _run_job(jid, inp, opt, roles, lmd_name):
+    """Berechnung im Hintergrund; der Fortschritt wird über /api/job/<id>/progress abgefragt."""
+    with work_lock:                      # der Pi rechnet immer nur einen Auftrag gleichzeitig
+        t0 = time.time()
+        _set_progress(jid, state='rechnet', started=t0, frac=0.0, text='Start')
+        rep = lambda a, b: (lambda f, t: _set_progress(jid, frac=round(a + (b - a) * f, 4), text=t))
+        meta = load_meta(jid)
+        try:
+            res = core.generate(inp, opt, progress=rep(0.0, 0.75))
+            ok, lines = check.verify(res.lmd, inp.top, inp.bottom, inp.outline, [t for t, _ in inp.drills],
+                                     progress=rep(0.75, 0.90))
+            pngs = {}
+            sides = preview.sides_present(res.lmd)
+            for k, s in enumerate(sides):
+                _set_progress(jid, frac=round(0.90 + 0.09 * k / len(sides), 4), text='Vorschau %s' % ('Top' if s == 'MillingTop' else 'Bottom'))
+                pngs[s] = preview.render(res.lmd, res.board, dpi=110, only=s)
+        except Exception as e:  # Fehler in Eingabedaten verständlich zurückgeben
+            meta.update(status='Fehler', error=str(e)); save_meta(jid, meta)
+            _set_progress(jid, state='fehler', text='Verarbeitung fehlgeschlagen: %s' % e)
+            return
+
+        jd = os.path.join(JOBS, jid)
+        with open(os.path.join(jd, 'result.LMD'), 'wb') as f: f.write(res.lmd)
+        for s, png in pngs.items():
+            with open(os.path.join(jd, 'preview_%s.png' % s), 'wb') as f: f.write(png)
+        # Kupfer je Seite für die Vektoransicht (vereinfacht, je Polygon: Außenring + Löcher als flache Koordinatenlisten)
+        cu_json = {}
+        for side, geom in res.copper.items():
+            rings = []
+            for pg in core.polys(geom.simplify(0.003)):
+                rings.append([[round(v, 3) for xy in r.coords for v in xy] for r in [pg.exterior] + list(pg.interiors)])
+            cu_json[side] = rings
+        with open(os.path.join(jd, 'copper.json'), 'w') as f:
+            json.dump(cu_json, f, separators=(',', ':'))
+        with open(os.path.join(jd, 'board.json'), 'w') as f:
+            json.dump([[round(x, 3), round(y, 3)] for x, y in res.board.exterior.coords], f)
+        seqp = os.path.join(jd, 'sequence.json')
+        if os.path.exists(seqp): os.remove(seqp)
+        for fm in meta['files']:
+            fm['role'] = roles.get(fm['name'], fm['role'])
+        meta.update(status='fertig', lmd_name=lmd_name, sides=list(pngs), options=asdict(opt), log=res.log, warnings=res.warnings,
+                    verify=[dict(ok=g, text=t, loc=l) for g, t, l in lines], verify_ok=ok, stats=res.stats,
+                    marks=res.marks, seconds=round(time.time() - t0, 1), error=None)
+        save_meta(jid, meta)
+        _set_progress(jid, state='fertig', frac=1.0, text='fertig')
+
+
+@app.get('/api/job/<jid>/progress')
+def job_progress(jid):
+    job_dir(jid)
+    with progress_lock:
+        st = dict(PROGRESS.get(jid) or {})
+    if not st:
+        m = load_meta(jid)
+        st = dict(state={'fertig': 'fertig', 'Fehler': 'fehler'}.get(m.get('status'), 'unbekannt'),
+                  frac=1.0 if m.get('status') == 'fertig' else 0.0, text=m.get('error') or m.get('status', ''))
+    if 'started' in st:
+        st['elapsed'] = round(time.time() - st.pop('started'), 1)
+    return jsonify(st)
 
 
 @app.get('/job/<jid>/preview/<side>.png')

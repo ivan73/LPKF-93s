@@ -140,6 +140,12 @@ und benachbarte Masseflächen. Breiter als der Abstand im Layout (z. B. Polygon-
 Phasen- und Werkzeugtabelle stammen aus einer CircuitCAM-4.0-Datei der LBS Meran
 (`lpkf93s/template.json`), damit die Namen zur BoardMaster-Werkzeugbibliothek passen.
 
+### Fortschritt
+
+Die Berechnung läuft im Hintergrund. Die Seite zeigt einen Balken mit dem aktuellen Arbeitsschritt (z. B. „Bottom: Isolation
+Kanal 2/4, Kupferfläche 56/104“), der bisherigen Dauer und einer geschätzten Restzeit. Rechnet der Pi gerade einen anderen
+Auftrag, steht dort „Wartet auf einen anderen Auftrag“.
+
 ### Problemstellen anzeigen
 
 Warnungen (z. B. „Abstand 0,152 mm < Fräser 0,20 mm“) und Prüffehler (Kurzschluss, Kupfer angefräst, fehlende Bohrung)

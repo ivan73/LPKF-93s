@@ -96,25 +96,37 @@ def rings(g):
 
 
 def order_paths(paths, start=(0.0, 0.0)):
-    """Greedy-Nearest-Neighbour; geschlossene Ringe beginnen am nächstgelegenen Punkt."""
+    """Greedy-Nearest-Neighbour; geschlossene Ringe beginnen am nächstgelegenen Punkt.
+    Schnell auch bei tausenden Ringen: je Bahn nur wenige Stützpunkte (Ringe bis 32, offene Bahnen
+    die beiden Enden) in einem numpy-Feld; der genaue Einstiegspunkt wird erst für die gewählte Bahn
+    und danach in improve_order bestimmt."""
+    import numpy as np
     rest = [p for p in paths if len(p) >= 2]
+    if not rest:
+        return []
+    pts, owner, kind = [], [], []          # kind: -1 = Ring, 0 = Anfang, 1 = Ende
+    for i, p in enumerate(rest):
+        if p[0] == p[-1]:
+            n = len(p) - 1
+            step = max(1, n // 32)
+            for k in range(0, n, step):
+                pts.append(p[k]); owner.append(i); kind.append(-1)
+        else:
+            pts.append(p[0]); owner.append(i); kind.append(0)
+            pts.append(p[-1]); owner.append(i); kind.append(1)
+    P = np.asarray(pts, dtype=float); O = np.asarray(owner); K = np.asarray(kind)
+    alive = np.ones(len(P), dtype=bool)
     out = []; cur = start
-    while rest:
-        best = None
-        for idx, p in enumerate(rest):
-            if p[0] == p[-1]:
-                k = min(range(len(p) - 1), key=lambda j: (p[j][0] - cur[0]) ** 2 + (p[j][1] - cur[1]) ** 2)
-                cand = ((p[k][0] - cur[0]) ** 2 + (p[k][1] - cur[1]) ** 2, idx, ('ring', k))
-            else:
-                d0 = (p[0][0] - cur[0]) ** 2 + (p[0][1] - cur[1]) ** 2
-                d1 = (p[-1][0] - cur[0]) ** 2 + (p[-1][1] - cur[1]) ** 2
-                cand = (min(d0, d1), idx, ('rev',) if d1 < d0 else ('fwd',))
-            if best is None or cand[0] < best[0]: best = cand
-        _, idx, how = best
-        p = rest.pop(idx)
-        if how[0] == 'ring':
-            k = how[1]; p = p[k:-1] + p[:k] + [p[k]]
-        elif how[0] == 'rev':
+    for _ in range(len(rest)):
+        d = (P[:, 0] - cur[0]) ** 2 + (P[:, 1] - cur[1]) ** 2
+        d[~alive] = np.inf
+        j = int(np.argmin(d))
+        i = int(O[j]); p = rest[i]
+        alive[O == i] = False
+        if K[j] == -1:
+            k = min(range(len(p) - 1), key=lambda m: (p[m][0] - cur[0]) ** 2 + (p[m][1] - cur[1]) ** 2)
+            p = p[k:-1] + p[:k] + [p[k]]
+        elif K[j] == 1:
             p = p[::-1]
         out.append(p); cur = p[-1]
     return improve_order(out, start)
@@ -246,23 +258,35 @@ def channel_plan(d_tool, width=0.0, overlap=0.3, passes=1):
                 overlap=(1 - step / d_tool) if n > 1 else None)
 
 
-def isolation(copper, board, d_tool, offsets, d_rub, rub_overlap):
+def isolation(copper, board, d_tool, offsets, d_rub, rub_overlap, progress=None):
     """(Isolationsbahnen, Ausräumbahnen) in mm.
     Ringe werden je Kupferinsel gebildet und nur dort gekappt, wo sie fremdes Kupfer
-    anfressen würden – so bleibt auch bei Abstand == Fräserdurchmesser die Trennbahn erhalten."""
+    anfressen würden – so bleibt auch bei Abstand == Fräserdurchmesser die Trennbahn erhalten.
+    progress(anteil 0..1, text) wird während der Rechnung aufgerufen."""
+    from shapely.geometry import box
+    prog = progress or (lambda f, t: None)
     r = d_tool / 2
     TOL = 0.0015   # erlaubt exakt tangierende Bahnen (Abstand == Fräser), schneidet höchstens 1,5 µm an
     isl = polys(copper)
     tree = Index(isl)
     iso = []
-    for off in offsets:
+    total = max(1, len(offsets) * len(isl)); done = 0
+    for kk, off in enumerate(offsets):
         bufs = [p.buffer(off, 24) for p in isl]
+        keep = {}                      # Sperrzone je Nachbarinsel – einmal je Durchgang statt je Insel
         for i in range(len(isl)):
             g = MultiLineString(rings(bufs[i])).intersection(board)
-            nb = [j for j in tree.query(bufs[i].buffer(off)) if j != i]
+            x0, y0, x1, y1 = bufs[i].bounds
+            nb = [j for j in tree.query(box(x0 - off, y0 - off, x1 + off, y1 + off)) if j != i]
             if nb:
-                g = g.difference(unary_union([isl[j].buffer(off - TOL, 24) for j in nb]))
+                for j in nb:
+                    if j not in keep:
+                        keep[j] = isl[j].buffer(off - TOL, 24)
+                g = g.difference(unary_union([keep[j] for j in nb]))
             iso += lines(g)
+            done += 1
+            if done % 10 == 0 or done == total:
+                prog(0.85 * done / total, 'Isolation Kanal %d/%d, Kupferfläche %d/%d' % (kk + 1, len(offsets), i + 1, len(isl)))
     if iso:
         iso = lines(linemerge([LineString(p) for p in iso if len(p) >= 2]))
     rub = []
@@ -274,6 +298,7 @@ def isolation(copper, board, d_tool, offsets, d_rub, rub_overlap):
         area = board.buffer(R * 0.9, 16).difference(copper.buffer(iso_w + R, 24))
         area = area.buffer(-0.01).buffer(0.01)
         stepR = d_rub * (1 - rub_overlap)
+        prog(0.88, 'Ausräumen')
         n = 0
         while not area.is_empty and n < 200:
             rub += rings(area)
@@ -373,8 +398,21 @@ def tab_paths(path, n, gap):
 
 
 # ---------------------------------------------------------------- Hauptfunktion
-def generate(inp: Inputs, opt: Options = None, template=TEMPLATE) -> Result:
+def generate(inp: Inputs, opt: Options = None, template=TEMPLATE, progress=None) -> Result:
+    """progress(anteil 0..1, text) meldet den Fortschritt (für die Anzeige in der Weboberfläche)."""
     opt = opt or Options()
+    _prog = progress or (lambda f, t: None)
+
+    def sub(a, b):
+        """Teilbereich a..b der Gesamtanzeige."""
+        return lambda f, t: _prog(a + (b - a) * max(0.0, min(1.0, f)), t)
+    sides_n = sum(1 for t in (inp.top, inp.bottom) if t)
+    side_w = 0.88 / max(1, sides_n)
+    side_start = {}
+    pos = 0.02
+    for nm, t in (('Top', inp.top), ('Bottom', inp.bottom)):
+        if t: side_start[nm] = pos; pos += side_w
+    _prog(0.0, 'Platinenumriss lesen')
     log, warn = [], []
     stats = {}
     phases = load_template(template)
@@ -396,6 +434,8 @@ def generate(inp: Inputs, opt: Options = None, template=TEMPLATE) -> Result:
     for side, txt, key, mask in (('Top', inp.top, ('MillingTop', 'InsulateTop'), inp.mask_top),
                                  ('Bottom', inp.bottom, ('MillingBottom', 'InsulateBottom'), inp.mask_bottom)):
         if not txt: continue
+        sp = sub(side_start[side], side_start[side] + side_w)
+        sp(0.0, '%s: Kupfer lesen' % side)
         ph = P[key]
         copper, _ = gerber.read_gerber(txt)
         t_iso, d_iso = tool_of(ph, opt.iso_tool)
@@ -411,11 +451,14 @@ def generate(inp: Inputs, opt: Options = None, template=TEMPLATE) -> Result:
         for text, x, y in clearance_warnings(copper, d_iso, side):
             warn.append(text); log.append('  WARNUNG ' + text)
             marks.append(dict(side=side, x=round(x, 3), y=round(y, 3), text=text, kind='eng'))
-        iso, rub = isolation(copper, board, d_iso, plan['offsets'], d_rub, opt.rubout_overlap)
+        sp(0.05, '%s: Abstände prüfen' % side)
+        iso, rub = isolation(copper, board, d_iso, plan['offsets'], d_rub, opt.rubout_overlap,
+                             progress=lambda f, t: sp(0.08 + 0.62 * f, '%s: %s' % (side, t)))
         if opt.pad_width and opt.pad_width > plan['width'] + 1e-6:
             pads, src = pad_regions(copper, mask, holes_all)
             pplan = channel_plan(d_iso, opt.pad_width, opt.overlap)
             extra = [o for o in pplan['offsets'] if o > plan['offsets'][-1] + 1e-6]
+            sp(0.72, '%s: Pad-Freistellung' % side)
             pr = pad_clearance(copper, pads, board, d_iso, extra)
             iso += pr
             log.append('  Pad-Freistellung %.2f mm um %d Pads (erkannt über %s): +%d Ringe, %.0f mm' % (
@@ -423,7 +466,9 @@ def generate(inp: Inputs, opt: Options = None, template=TEMPLATE) -> Result:
             if src is None:
                 w = '%s: Pad-Freistellung nicht möglich – weder Lötstoppmaske noch Bohrungen vorhanden' % side
                 warn.append(w); log.append('  Hinweis: ' + w)
+        sp(0.78, '%s: Reihenfolge optimieren' % side)
         iso = order_paths(iso, corner); rub = order_paths(rub, iso[-1][-1] if iso else corner)
+        sp(0.96, '%s: Bahnen verbinden' % side)
         n_before = len(iso) + len(rub)
         iso = link_paths(iso, copper, d_iso / 2)
         if d_rub: rub = link_paths(rub, copper, d_rub / 2)
@@ -434,6 +479,7 @@ def generate(inp: Inputs, opt: Options = None, template=TEMPLATE) -> Result:
         log.append('  Isolation: %d Bahnen (%.0f mm), Ausräumen: %d Bahnen (%.0f mm)' % (len(iso), L(iso), len(rub), L(rub)))
         stats[side] = dict(channels=plan['n'], width=round(plan['width'], 3), islands=len(polys(copper)), iso_mm=round(L(iso)), rub_mm=round(L(rub)))
 
+    _prog(0.90, 'Bohrungen zuordnen und sortieren')
     # --- Bohren
     all_holes = []
     for txt, plated in inp.drills:
@@ -479,6 +525,7 @@ def generate(inp: Inputs, opt: Options = None, template=TEMPLATE) -> Result:
                 mk['cmds'].append((0x0f, (p[0][0] * M, p[0][1] * M)))
     stats['holes'] = len(all_holes)
 
+    _prog(0.97, 'Außenkontur')
     # --- Außenkontur
     ph = P[('CuttingOutside', 'CuttingOutside')]
     t_cut, d_cut = tool_of(ph, opt.cut_tool)
@@ -496,6 +543,7 @@ def generate(inp: Inputs, opt: Options = None, template=TEMPLATE) -> Result:
     log.append('Außenkontur: %s, %d Haltesteg(e)' % (opt.cut_tool, n))
 
     data = lmdio.write(lmdio.make_header(opt.user), phases)
+    _prog(1.0, 'LMD geschrieben')
     log.append('LMD: %d Bytes' % len(data))
     return Result(data, log, warn, board, stats, marks, copper_by_side)
 

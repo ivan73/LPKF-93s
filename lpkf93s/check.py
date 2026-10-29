@@ -6,16 +6,18 @@ from . import gerber, lmdio
 from .preview import paths
 
 
-def verify(lmd_bytes, top=None, bottom=None, outline=None, drills=()):
+def verify(lmd_bytes, top=None, bottom=None, outline=None, drills=(), progress=None):
     """Liefert (ok, zeilen). drills = Liste von Excellon-Texten.
     Jede Zeile: (gut, text, ort) – ort = dict(side, x, y) oder None."""
     _, phases = lmdio.read(lmd_bytes)
+    prog = progress or (lambda f, t: None)
     ok = True; out = []
     board = None
     if outline:
         board, _ = gerber.outline_polygon(gerber.read_gerber(outline)[1])
     for side, txt, ph_name in (('Top', top, 'MillingTop'), ('Bottom', bottom, 'MillingBottom')):
         if not txt: continue
+        prog(0.05 if side == 'Top' else 0.45, 'Prüfung %s: Kupfer angefräst?' % side)
         cu, _ = gerber.read_gerber(txt)
         cutlist = []
         for p in phases:
@@ -43,6 +45,7 @@ def verify(lmd_bytes, top=None, bottom=None, outline=None, drills=()):
                     txt = '%s, %s mit %s: fräst %.3f mm ins Kupfer bei X=%.2f Y=%.2f' % (side, what, name[t], -w, a.x, a.y)
                 out.append((good, txt, loc))
         if board is not None:
+            prog(0.25 if side == 'Top' else 0.65, 'Prüfung %s: Kurzschlüsse?' % side)
             rest = board.difference(unary_union(cutlist)) if cutlist else board
             isl = list(getattr(cu, 'geoms', [cu]))
             tree = Index(isl); shorts = []
@@ -64,6 +67,7 @@ def verify(lmd_bytes, top=None, bottom=None, outline=None, drills=()):
             out.append((not shorts, ('%s: alle %d Kupferflächen sauber voneinander getrennt' % (side, len(isl))) if not shorts else ('%s: %d ungetrennte Stellen' % (side, len(shorts))), None))
             ok &= not shorts
     if drills:
+        prog(0.9, 'Prüfung: Bohrungen vollständig?')
         holes = [h for d in drills for h in gerber.read_excellon(d)]
         found = []
         for p in phases:
