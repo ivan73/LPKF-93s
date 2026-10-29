@@ -140,6 +140,16 @@ und benachbarte Masseflächen. Breiter als der Abstand im Layout (z. B. Polygon-
 Phasen- und Werkzeugtabelle stammen aus einer CircuitCAM-4.0-Datei der LBS Meran
 (`lpkf93s/template.json`), damit die Namen zur BoardMaster-Werkzeugbibliothek passen.
 
+### Problemstellen anzeigen
+
+Warnungen (z. B. „Abstand 0,152 mm < Fräser 0,20 mm“) und Prüffehler (Kurzschluss, Kupfer angefräst, fehlende Bohrung)
+sind im Ergebnis anklickbar. Ein Klick öffnet die Vektoransicht der richtigen Seite mit allen Bahnen und dem Kupfer,
+zoomt auf die Stelle und markiert sie. Bei Kurzschlüssen wird die engste Stelle zwischen den verbundenen
+Kupferflächen gezeigt, also genau dort, wo der Fräser nicht durchkommt.
+
+Abhilfe bei zu engen Abständen: einen feineren Isolierfräser wählen (z. B. `End Mill (RF) 0.15 mm`,
+`Micro Cutter 0.13 mm` oder `0.1 mm`) oder im Layout den Mindestabstand vergrößern.
+
 ## Wegoptimierung
 
 * **Reihenfolge:** Erst wird jeweils die nächstgelegene Bahn bzw. Bohrung gewählt. Danach optimiert ein 2-opt-Verfahren

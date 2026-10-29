@@ -59,7 +59,7 @@ def main():
         open(a.preview, 'wb').write(preview.render(res.lmd, res.board)); print('Vorschau:', a.preview)
     if a.verify:
         ok, lines = check.verify(res.lmd, inp.top, inp.bottom, inp.outline, [t for t, _ in inp.drills])
-        for good, l in lines: print('OK    ' if good else 'FEHLER', l)
+        for good, l, _ in lines: print('OK    ' if good else 'FEHLER', l)
         print('PRÜFUNG:', 'alles in Ordnung' if ok else 'PROBLEME gefunden')
         sys.exit(0 if ok else 2)
 

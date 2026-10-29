@@ -86,6 +86,9 @@ details summary{cursor:pointer;color:var(--muted);font-size:13px;margin-top:8px}
 @media (max-width:900px){.stage.seq{height:auto}}
 .pcanvas{flex:1;min-height:360px;position:relative;background:#fff;border-radius:3px;border:1px solid var(--line)}
 .pcanvas canvas{position:absolute;inset:0;width:100%;height:100%;cursor:grab;touch-action:none}
+.spot{cursor:pointer;border-radius:3px}
+.spot:hover,.spot:focus-visible{background:color-mix(in srgb,var(--bad) 8%,transparent)}
+.spot .show{font-size:12px;text-decoration:underline;white-space:nowrap;color:var(--ink)}
 .drilltab{width:100%;border-collapse:collapse;font-size:13.5px}
 .drilltab td,.drilltab th{padding:4px 3px;border-bottom:1px solid var(--line);vertical-align:middle}
 .drilltab th{font-size:12.5px;color:var(--muted);font-weight:600;text-align:left}
@@ -262,7 +265,7 @@ section.history td,section.history th{padding:7px 10px}
       <div class="pctl"><input type="range" id="pSlider" min="0" max="0" value="0" aria-label="Schritt"></div>
       <div class="pinfo" id="pInfo" aria-live="polite"></div>
       <div class="pcanvas"><canvas id="pCanvas"></canvas></div>
-      <div class="plegend"><span><i style="border-color:#2f6b4f"></i>schon gefräst</span><span><i style="border-color:#b5652a;border-top-width:4px"></i>aktueller Schritt</span><span><i style="border-color:#b5652a;border-top-style:dashed"></i>Leerweg (Fräser oben)</span><span><i style="border-color:#c9cfc6"></i>noch offen</span><span>Mausrad zoomt, ziehen verschiebt, Doppelklick setzt zurück</span></div>
+      <div class="plegend"><span><i style="border-color:#2f6b4f"></i>schon gefräst</span><span><i style="border-color:#b5652a;border-top-width:4px"></i>aktueller Schritt</span><span><i style="border-color:#b5652a;border-top-style:dashed"></i>Leerweg (Fräser oben)</span><span><i style="border-color:#c9cfc6"></i>noch offen</span><label><input type="checkbox" id="pCopper" checked> Kupfer zeigen</label><span>Mausrad zoomt, ziehen verschiebt, Doppelklick setzt zurück</span></div>
     </div>
     <div class="preview"><a id="pvLink" target="_blank" title="Vorschau in voller Größe öffnen"><img id="pv" alt="Vorschau der Fräsbahnen"></a></div>
     <div class="busy"><div><span class="spin"></span><span id="busyText">Berechne Fräsbahnen …</span></div></div>
@@ -407,13 +410,16 @@ function showResult(j){
   const warn = (j.warnings||[]);
   $('#result').innerHTML = `
     <div class="verdict ${j.verify_ok?'ok':'bad'}">${j.verify_ok?'Prüfung bestanden':'Prüfung meldet Probleme – so nicht fräsen'}</div>
-    ${warn.length?`<div class="warnbox">${warn.map(w=>`<p>${esc(w)}</p>`).join('')}</div>`:''}
+    ${warn.length?`<div class="warnbox">${warn.map(w=>{ const m=(j.marks||[]).find(m=>m.text===w);
+        return m ? `<p class="spot" role="button" tabindex="0" data-side="${m.side}" data-x="${m.x}" data-y="${m.y}">${esc(w)} <span class="show">zeigen</span></p>` : `<p>${esc(w)}</p>`; }).join('')}</div>`:''}
     <div class="dl">
       <a class="btn primary" href="job/${j.id}/download" id="dlBtn">${esc(j.lmd_name)} herunterladen</a>
       <div class="name"><label for="lmdName">Dateiname</label><input id="lmdName" type="text" value="${esc(j.lmd_name.replace(/\.LMD$/i,''))}">.LMD</div>
       <p class="hint" style="margin:0">Namen ändern und „LMD erzeugen“ erneut drücken. Für alte BoardMaster-Versionen kurz halten.</p>
     </div>
-    <ul class="checks" style="margin-top:12px">${v.map(c=>`<li class="${c.ok?'g':'b'}">${esc(c.text)}</li>`).join('')}</ul>
+    <ul class="checks" style="margin-top:12px">${v.map(c=> c.loc
+        ? `<li class="${c.ok?'g':'b'} spot" role="button" tabindex="0" data-side="${c.loc.side}" data-x="${c.loc.x}" data-y="${c.loc.y}">${esc(c.text)} <span class="show">zeigen</span></li>`
+        : `<li class="${c.ok?'g':'b'}">${esc(c.text)}</li>`).join('')}</ul>
     <h2 style="font-size:15px;margin:14px 0 4px">Geschätzte Fräszeit</h2>
     <div id="estimate"><p class="hint">Wird berechnet …</p></div>
     <details id="mdetails"><summary>Maschinenwerte für die Schätzung</summary>
@@ -495,6 +501,17 @@ const Drills = (()=>{
   return {load, map: current};
 })();
 
+// ---------- Problemstellen anklicken -> Vektoransicht mit Markierung
+function showSpot(el){
+  if(!job) return;
+  document.querySelectorAll('.sidebar button').forEach(b=>b.setAttribute('aria-pressed', b.dataset.side==='seq'));
+  curSide='seq'; $('#stage').classList.add('seq');
+  Player.focus(job.id, stamp, el.dataset.side, +el.dataset.x, +el.dataset.y, el.textContent.replace(/\s*zeigen$/,''));
+  if(window.innerWidth<=900) $('#stage').scrollIntoView({behavior:'smooth', block:'start'});
+}
+document.addEventListener('click', e=>{ const el=e.target.closest('.spot'); if(el) showSpot(el); });
+document.addEventListener('keydown', e=>{ const el=e.target.closest && e.target.closest('.spot'); if(el && (e.key==='Enter'||e.key===' ')){ e.preventDefault(); showSpot(el); } });
+
 // ---------- Ablaufdaten (einmal je Auftrag laden, von Player und Zeitschätzung gemeinsam genutzt)
 const _seqCache = {};
 function loadSeq(id, st){
@@ -571,8 +588,10 @@ const Estimate = (()=>{
 // ---------- Ablauf-Player: Reihenfolge der Bahnen so, wie sie in der LMD stehen
 const Player = (()=>{
   const cv = $('#pCanvas'), ctx = cv.getContext('2d');
-  let data=null, key=null, ph=null, step=0, timer=null, view=null, drag=null, cum=[];
-  const COL = {done:'#2f6b4f', cur:'#b5652a', rapid:'#b5652a', todo:'#c9cfc6', board:'#9aa39e', drillDone:'#1d2a26'};
+  let data=null, key=null, ph=null, step=0, timer=null, view=null, drag=null, cum=[], mark=null;
+  const COL = {done:'#2f6b4f', cur:'#b5652a', rapid:'#b5652a', todo:'#c9cfc6', board:'#9aa39e', drillDone:'#1d2a26',
+               copper:'rgba(214,160,92,0.35)', copperEdge:'rgba(181,101,42,0.55)', mark:'#b3261e'};
+  const sideOf = p => p.phase==='MillingBottom' ? 'Bottom' : 'Top';
 
   async function open(id, st){
     const k = id+'|'+st;
@@ -584,8 +603,8 @@ const Player = (()=>{
       selectPhase(0);
     } else { resize(); }
   }
-  function selectPhase(i){
-    stop(); ph = data.phases[+i]; step = 0; view=null;
+  function selectPhase(i, keepMark){
+    stop(); ph = data.phases[+i]; step = 0; view=null; if(!keepMark) mark=null;
     // aufsummierter Leerweg je Schritt
     cum=[0]; let last=null;
     // nach einem Werkzeugwechsel kommt die Maschine von der Wechselposition – dieser Weg zählt nicht
@@ -617,6 +636,14 @@ const Player = (()=>{
     ctx.lineJoin='round'; ctx.lineCap='round';
     if(data.board){ ctx.setLineDash([4*dpr,3*dpr]); ctx.strokeStyle=COL.board; ctx.lineWidth=1*dpr;
       ctx.beginPath(); data.board.forEach(([x,y],i)=> i?ctx.lineTo(X(x),Y(y)):ctx.moveTo(X(x),Y(y))); ctx.stroke(); ctx.setLineDash([]); }
+    // Kupfer der Seite (für Isolieren die jeweilige Seite, sonst Top) – zeigt, wo getrennt werden muss
+    const cu = (data.copper||{})[sideOf(ph)];
+    if(cu && $('#pCopper').checked){
+      ctx.fillStyle=COL.copper; ctx.strokeStyle=COL.copperEdge; ctx.lineWidth=0.75*dpr;
+      for(const poly of cu){ ctx.beginPath();
+        for(const r of poly){ ctx.moveTo(X(r[0]),Y(r[1])); for(let i=2;i<r.length;i+=2) ctx.lineTo(X(r[i]),Y(r[i+1])); ctx.closePath(); }
+        ctx.fill('evenodd'); ctx.stroke(); }
+    }
     const dia = t => (ph.tools[t]||['',0.2])[1];
     const wpx = t => Math.max(1*dpr, Math.min(dia(t)*view.s, 6*dpr));
     // noch offen
@@ -632,18 +659,39 @@ const Player = (()=>{
       else { ctx.strokeStyle=cur?COL.cur:COL.done; ctx.lineWidth=cur?Math.max(3*dpr,wpx(it.t)):wpx(it.t); strokePath(it.c); }
     }
     // Absenkpunkt des aktuellen Schritts
-    if(step>0){ const it=ph.items[step-1]; ctx.strokeStyle=COL.cur; ctx.lineWidth=2*dpr; ctx.beginPath(); ctx.arc(X(it.c[0]),Y(it.c[1]),6*dpr,0,7); ctx.stroke(); }
+    if(step>0 && step<n){ const it=ph.items[step-1]; ctx.strokeStyle=COL.cur; ctx.lineWidth=2*dpr; ctx.beginPath(); ctx.arc(X(it.c[0]),Y(it.c[1]),6*dpr,0,7); ctx.stroke(); }
+    // markierte Problemstelle
+    if(mark){ const mx=X(mark.x), my=Y(mark.y), r=Math.max(14*dpr, 0.5*view.s);
+      ctx.strokeStyle=COL.mark; ctx.lineWidth=2.5*dpr; ctx.beginPath(); ctx.arc(mx,my,r,0,7); ctx.stroke();
+      ctx.lineWidth=1.5*dpr; ctx.beginPath(); ctx.moveTo(mx-r*1.6,my); ctx.lineTo(mx-r*0.6,my); ctx.moveTo(mx+r*0.6,my); ctx.lineTo(mx+r*1.6,my);
+      ctx.moveTo(mx,my-r*1.6); ctx.lineTo(mx,my-r*0.6); ctx.moveTo(mx,my+r*0.6); ctx.lineTo(mx,my+r*1.6); ctx.stroke(); }
     info();
   }
   function info(){
     const n=ph.items.length; $('#pSlider').value=step;
-    if(step===0){ const e=Estimate.phase(ph); $('#pInfo').innerHTML=`<b>${esc(ph.label)}</b>: ${n} Schritte, Leerweg gesamt ${Math.round(cum[n])} mm, geschätzt <b>${fmtTime(e.time)}</b>. Mit ▶ oder „Abspielen“ starten.`; return; }
+    const mk = mark ? `<br><span style="color:var(--bad)"><b>Markiert:</b> ${esc(mark.text)}</span>` : '';
+    if(step===0){ const e=Estimate.phase(ph); $('#pInfo').innerHTML=`<b>${esc(ph.label)}</b>: ${n} Schritte, Leerweg gesamt ${Math.round(cum[n])} mm, geschätzt <b>${fmtTime(e.time)}</b>. Mit ▶ oder „Abspielen“ starten.`+mk; return; }
     const it=ph.items[step-1], tool=ph.tools[it.t]||['?',0], prev=step>1?ph.items[step-2]:null;
     const change = !prev || prev.t!==it.t;
     $('#pInfo').innerHTML = `Schritt <b>${step}</b> von ${n} · ${it.k==='d'?'Bohrung':'Bahn'} mit <b>${esc(tool[0])}</b>`
       + (change? ` · <b>Werkzeugwechsel</b> (Anfahrt von der Wechselposition, nicht gezählt)`:'')
       + `<br>Leerweg bis hier ${Math.round(cum[step])} von ${Math.round(cum[n])} mm · Zeit bis hier ≈ ${fmtTime(Estimate.phase(ph, step).time)} von ${fmtTime(Estimate.phase(ph).time)}`
-      + (it.k==='d'? ` · X ${it.c[0].toFixed(2)} Y ${it.c[1].toFixed(2)}` : '');
+      + (it.k==='d'? ` · X ${it.c[0].toFixed(2)} Y ${it.c[1].toFixed(2)}` : '') + mk;
+  }
+  // Problemstelle anzeigen: passende Seite, alle Bahnen eingezeichnet, auf die Stelle gezoomt
+  async function focus(id, st, side, x, y, text){
+    await open(id, st);
+    if(!data) return;
+    let i = data.phases.findIndex(p => sideOf(p)===side && p.phase.startsWith('Milling'));
+    if(i<0) i = data.phases.findIndex(p => p.phase.startsWith('Drilling'));
+    if(i<0) i = 0;
+    $('#pPhase').value = i;
+    mark = {x, y, text};
+    selectPhase(i, true);
+    step = ph.items.length;
+    const W=cv.width, H=cv.height, s = Math.min(W,H)/4.0;          // ca. 4 mm Ausschnitt
+    view = {s, ox: W/2 - x*s, oy: H/2 + y*s};
+    draw();
   }
   function go(s){ step=Math.max(0,Math.min(ph?ph.items.length:0,s)); draw(); }
   function play(){
@@ -676,7 +724,8 @@ const Player = (()=>{
   cv.addEventListener('pointerup',()=>{ drag=null; cv.style.cursor='grab'; });
   cv.addEventListener('dblclick',()=>{ if(data){ view=fit(); draw(); } });
   window.addEventListener('resize',()=>{ if($('#stage').classList.contains('seq')){ const keep=view; view=null; resize(); if(keep) {} } });
-  return {open, stop};
+  $('#pCopper').onchange=()=>draw();
+  return {open, stop, focus};
 })();
 
 

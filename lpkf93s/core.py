@@ -48,6 +48,8 @@ class Result:
     warnings: list
     board: object
     stats: dict
+    marks: list = field(default_factory=list)    # [dict(side, x, y, text, kind)] – Problemstellen zum Anzeigen
+    copper: dict = field(default_factory=dict)   # {'Top': Geometrie, 'Bottom': Geometrie}
 
 
 def load_template(path=TEMPLATE):
@@ -249,7 +251,7 @@ def isolation(copper, board, d_tool, offsets, d_rub, rub_overlap):
     Ringe werden je Kupferinsel gebildet und nur dort gekappt, wo sie fremdes Kupfer
     anfressen würden – so bleibt auch bei Abstand == Fräserdurchmesser die Trennbahn erhalten."""
     r = d_tool / 2
-    TOL = 0.003
+    TOL = 0.0015   # erlaubt exakt tangierende Bahnen (Abstand == Fräser), schneidet höchstens 1,5 µm an
     isl = polys(copper)
     tree = Index(isl)
     iso = []
@@ -321,8 +323,8 @@ def clearance_warnings(copper, d_tool, label):
             if dist < d_tool - 1e-4:
                 a, b = nearest_points(p, ps[j])
                 out.append((dist, (a.x + b.x) / 2, (a.y + b.y) / 2))
-    return ['%s: Abstand %.3f mm < Fräser %.2f mm bei X=%.2f Y=%.2f – dort wird NICHT getrennt!'
-            % (label, d, d_tool, x, y) for d, x, y in sorted(out)]
+    return [('%s: Abstand %.3f mm < Fräser %.2f mm bei X=%.2f Y=%.2f – dort wird NICHT getrennt!'
+             % (label, d, d_tool, x, y), x, y) for d, x, y in sorted(out)]
 
 
 def dkey(d):
@@ -388,6 +390,7 @@ def generate(inp: Inputs, opt: Options = None, template=TEMPLATE) -> Result:
     corner = (bx0, by0)   # Startpunkt der Wegoptimierung: linke untere Platinenecke
 
     holes_all = [h for txt, _ in inp.drills for h in gerber.read_excellon(txt)]
+    marks, copper_by_side = [], {}
 
     # --- Isolation
     for side, txt, key, mask in (('Top', inp.top, ('MillingTop', 'InsulateTop'), inp.mask_top),
@@ -404,8 +407,10 @@ def generate(inp: Inputs, opt: Options = None, template=TEMPLATE) -> Result:
         log.append('%s: %d Kupferinseln, Isolation %.2f mm breit = %d %s mit Ø%.2f mm%s' % (
             side, len(polys(copper)), plan['width'], plan['n'], 'Kanal' if plan['n'] == 1 else 'Kanäle', d_iso,
             (', Versatz %.3f mm, Überlappung %.0f %%' % (plan['step'], plan['overlap'] * 100)) if plan['n'] > 1 else ''))
-        w = clearance_warnings(copper, d_iso, side)
-        warn += w; log += ['  WARNUNG ' + x for x in w]
+        copper_by_side[side] = copper
+        for text, x, y in clearance_warnings(copper, d_iso, side):
+            warn.append(text); log.append('  WARNUNG ' + text)
+            marks.append(dict(side=side, x=round(x, 3), y=round(y, 3), text=text, kind='eng'))
         iso, rub = isolation(copper, board, d_iso, plan['offsets'], d_rub, opt.rubout_overlap)
         if opt.pad_width and opt.pad_width > plan['width'] + 1e-6:
             pads, src = pad_regions(copper, mask, holes_all)
@@ -492,7 +497,7 @@ def generate(inp: Inputs, opt: Options = None, template=TEMPLATE) -> Result:
 
     data = lmdio.write(lmdio.make_header(opt.user), phases)
     log.append('LMD: %d Bytes' % len(data))
-    return Result(data, log, warn, board, stats)
+    return Result(data, log, warn, board, stats, marks, copper_by_side)
 
 
 def drill_summary(drills, top=None, bottom=None, template=TEMPLATE):

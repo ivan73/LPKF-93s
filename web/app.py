@@ -206,6 +206,15 @@ def generate(jid):
     with open(os.path.join(jd, 'result.LMD'), 'wb') as f: f.write(res.lmd)
     for s, png in pngs.items():
         with open(os.path.join(jd, 'preview_%s.png' % s), 'wb') as f: f.write(png)
+    # Kupfer je Seite für die Vektoransicht (vereinfacht, je Polygon: Außenring + Löcher als flache Koordinatenlisten)
+    cu_json = {}
+    for side, geom in res.copper.items():
+        rings = []
+        for pg in core.polys(geom.simplify(0.003)):
+            rings.append([[round(v, 3) for xy in r.coords for v in xy] for r in [pg.exterior] + list(pg.interiors)])
+        cu_json[side] = rings
+    with open(os.path.join(jd, 'copper.json'), 'w') as f:
+        json.dump(cu_json, f, separators=(',', ':'))
     with open(os.path.join(jd, 'board.json'), 'w') as f:
         json.dump([[round(x, 3), round(y, 3)] for x, y in res.board.exterior.coords], f)
     seqp = os.path.join(jd, 'sequence.json')
@@ -213,7 +222,8 @@ def generate(jid):
     for fm in meta['files']:
         fm['role'] = roles.get(fm['name'], fm['role'])
     meta.update(status='fertig', lmd_name=lmd_name, sides=list(pngs), options=asdict(opt), log=res.log, warnings=res.warnings,
-                verify=[dict(ok=g, text=t) for g, t in lines], verify_ok=ok, stats=res.stats,
+                verify=[dict(ok=g, text=t, loc=l) for g, t, l in lines], verify_ok=ok, stats=res.stats,
+                marks=res.marks,
                 seconds=round(time.time() - t0, 1), error=None)
     save_meta(jid, meta)
     return jsonify(meta)
@@ -254,6 +264,8 @@ def job_sequence(jid):
         seq = preview.sequence(open(lmd, 'rb').read())
         bp = os.path.join(jd, 'board.json')
         seq['board'] = json.load(open(bp)) if os.path.exists(bp) else None
+        cp = os.path.join(jd, 'copper.json')
+        seq['copper'] = json.load(open(cp)) if os.path.exists(cp) else {}
         with open(p + '.tmp', 'w') as f: json.dump(seq, f, separators=(',', ':'))
         os.replace(p + '.tmp', p)
     return send_file(p, mimetype='application/json', max_age=0)
