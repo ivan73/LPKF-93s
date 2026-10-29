@@ -140,6 +140,20 @@ und benachbarte Masseflächen. Breiter als der Abstand im Layout (z. B. Polygon-
 Phasen- und Werkzeugtabelle stammen aus einer CircuitCAM-4.0-Datei der LBS Meran
 (`lpkf93s/template.json`), damit die Namen zur BoardMaster-Werkzeugbibliothek passen.
 
+### Vorprüfung
+
+„LMD erzeugen“ prüft zuerst in wenigen Sekunden, ohne Fräsbahnen zu rechnen:
+
+* Abstände zwischen Kupferflächen, die enger sind als der Isolierfräser (dort würde nicht getrennt)
+* Bohrungen außerhalb der Platine
+* Bohrungen, die größer als der größte Bohrer und zu klein für den Fräser sind
+* zu dünner Restring durch eine gewählte Bohrerzuordnung
+* Kupfer außerhalb des Platinenumrisses
+
+Ist alles sauber, startet die Berechnung sofort. Sonst zeigt die Seite die Befunde (anklickbar auf der Platine) und schlägt
+bei Engstellen den größten Isolierfräser vor, der überall durchpasst („übernehmen und neu prüfen“).
+Gerechnet wird dann erst nach **Trotzdem berechnen**.
+
 ### Fortschritt
 
 Die Berechnung läuft im Hintergrund. Die Seite zeigt einen Balken mit dem aktuellen Arbeitsschritt (z. B. „Bottom: Isolation

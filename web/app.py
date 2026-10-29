@@ -147,10 +147,13 @@ def job(jid):
     return jsonify(load_meta(jid))
 
 
-@app.post('/api/job/<jid>/generate')
-def generate(jid):
+class InputError(Exception):
+    pass
+
+
+def _build(jid, body):
+    """Eingaben und Optionen aus der Anfrage zusammenbauen (gemeinsam für Vorprüfung und Berechnung)."""
     meta = load_meta(jid)
-    body = request.get_json(force=True)
     roles = body.get('roles', {})
     o = body.get('options', {})
     d = os.path.join(job_dir(jid), 'files')
@@ -159,11 +162,11 @@ def generate(jid):
     pick = {r: [n for n, rr in roles.items() if rr == r] for r in detect.ROLES}
     for r in ('top', 'bottom', 'outline', 'mask_top', 'mask_bottom'):
         if len(pick[r]) > 1:
-            return jsonify(error='%s ist mehrfach zugeordnet.' % detect.ROLES[r]), 400
+            raise InputError('%s ist mehrfach zugeordnet.' % detect.ROLES[r])
     if not pick['outline']:
-        return jsonify(error='Bitte eine Datei als Platinenumriss zuordnen.'), 400
+        raise InputError('Bitte eine Datei als Platinenumriss zuordnen.')
     if not pick['top'] and not pick['bottom']:
-        return jsonify(error='Bitte mindestens eine Kupferlage zuordnen.'), 400
+        raise InputError('Bitte mindestens eine Kupferlage zuordnen.')
 
     def num(k, typ, lo, hi, default):
         try: v = typ(o.get(k, default))
@@ -190,6 +193,43 @@ def generate(jid):
                       mask_top=rd(pick['mask_top'][0]) if pick['mask_top'] else None,
                       mask_bottom=rd(pick['mask_bottom'][0]) if pick['mask_bottom'] else None)
     lmd_name = short_name(body.get('lmd_name') or meta['lmd_name']) + '.LMD'
+    return meta, inp, opt, roles, lmd_name
+
+
+def _copper_json(copper):
+    """Kupfer je Seite für die Vektoransicht (vereinfacht, je Polygon: Außenring + Löcher als flache Koordinatenlisten)."""
+    out = {}
+    for side, geom in copper.items():
+        out[side] = [[[round(v, 3) for xy in r.coords for v in xy] for r in [pg.exterior] + list(pg.interiors)]
+                     for pg in core.polys(geom.simplify(0.003))]
+    return out
+
+
+@app.post('/api/job/<jid>/precheck')
+def job_precheck(jid):
+    """Vorprüfung ohne Fräsweg-Berechnung: Engstellen, Bohrungen, Restring. Dauert nur Sekunden."""
+    try:
+        meta, inp, opt, roles, lmd_name = _build(jid, request.get_json(force=True))
+        pc = core.precheck(inp, opt)
+    except InputError as e:
+        return jsonify(error=str(e)), 400
+    except Exception as e:
+        return jsonify(error='Vorprüfung fehlgeschlagen: %s' % e), 422
+    b = pc['board']
+    x0, y0, x1, y1 = b.bounds
+    view = dict(bounds=[x0, y0, x1, y1], board=[[round(x, 3), round(y, 3)] for x, y in b.exterior.coords],
+                copper=_copper_json(pc['copper']),
+                phases=[dict(phase='Milling' + s, layer='Insulate' + s, label='Kupfer %s (Vorprüfung)' % s, tools={}, items=[])
+                        for s in ('Top', 'Bottom') if s in pc['copper']])
+    return jsonify(items=pc['items'], suggestion=pc['suggestion'], view=view)
+
+
+@app.post('/api/job/<jid>/generate')
+def generate(jid):
+    try:
+        meta, inp, opt, roles, lmd_name = _build(jid, request.get_json(force=True))
+    except InputError as e:
+        return jsonify(error=str(e)), 400
 
     with progress_lock:
         st = PROGRESS.get(jid)
@@ -231,13 +271,7 @@ def _run_job(jid, inp, opt, roles, lmd_name):
         with open(os.path.join(jd, 'result.LMD'), 'wb') as f: f.write(res.lmd)
         for s, png in pngs.items():
             with open(os.path.join(jd, 'preview_%s.png' % s), 'wb') as f: f.write(png)
-        # Kupfer je Seite für die Vektoransicht (vereinfacht, je Polygon: Außenring + Löcher als flache Koordinatenlisten)
-        cu_json = {}
-        for side, geom in res.copper.items():
-            rings = []
-            for pg in core.polys(geom.simplify(0.003)):
-                rings.append([[round(v, 3) for xy in r.coords for v in xy] for r in [pg.exterior] + list(pg.interiors)])
-            cu_json[side] = rings
+        cu_json = _copper_json(res.copper)
         with open(os.path.join(jd, 'copper.json'), 'w') as f:
             json.dump(cu_json, f, separators=(',', ':'))
         with open(os.path.join(jd, 'board.json'), 'w') as f:

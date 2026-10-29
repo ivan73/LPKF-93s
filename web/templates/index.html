@@ -75,6 +75,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:13px;margin-top:8px}
 .player{display:none;flex:1;flex-direction:column;padding:8px 10px 10px;gap:8px;min-height:0}
 .stage.seq .player{display:flex}
 .stage.seq .preview{display:none!important}
+.stage.seq .drop{display:none}
 .stage.seq #pvOpen{visibility:hidden}
 .pctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .pctl button{font-size:14px;padding:4px 10px;border-width:1px;min-width:36px}
@@ -89,6 +90,11 @@ details summary{cursor:pointer;color:var(--muted);font-size:13px;margin-top:8px}
 .spot{cursor:pointer;border-radius:3px}
 .spot:hover,.spot:focus-visible{background:color-mix(in srgb,var(--bad) 8%,transparent)}
 .spot.active{background:color-mix(in srgb,var(--bad) 14%,transparent);box-shadow:inset 3px 0 0 var(--bad)}
+.verdict.warnv{background:var(--warn-bg);color:var(--warn)}
+ul.checks li.h::before{content:"!";color:var(--warn)}
+.sugg{background:var(--ok-bg);color:var(--ink);border-radius:4px;padding:8px 12px;font-size:13.5px;margin-bottom:10px}
+.sugg button{font-size:13.5px;padding:5px 10px;border-color:var(--ok);color:var(--ok)}
+.pcbtns{display:flex;flex-direction:column;gap:6px;margin-top:10px}
 .spot .show{font-size:12px;text-decoration:underline;white-space:nowrap;color:var(--ink)}
 .drilltab{width:100%;border-collapse:collapse;font-size:13.5px}
 .drilltab td,.drilltab th{padding:4px 3px;border-bottom:1px solid var(--line);vertical-align:middle}
@@ -392,13 +398,27 @@ function loadJob(j){
 }
 
 // ---------- Erzeugen
-async function generate(){
+async function generate(force){
   if(!job) return;
   showErr('');
   const roles = {}; document.querySelectorAll('select.role').forEach(s=>roles[s.dataset.name]=s.value);
   const options = readOpts(); store.set('lpkf-opts', options);
   const lmd_name = $('#lmdName') ? $('#lmdName').value : job.lmd_name;
-  $('#go').disabled = true; setBusy(true,'Starte Berechnung …'); showProgress(0, '', 0);
+  $('#go').disabled = true;
+  // Vorprüfung: dauert Sekunden; bei Befunden erst nach Zustimmung rechnen
+  if(force!==true){
+    setBusy(true,'Vorprüfung …');
+    try{
+      const r = await fetch(`api/job/${job.id}/precheck`,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({roles,options,lmd_name})});
+      const pc = await r.json();
+      if(!r.ok) throw new Error(pc.error||r.statusText);
+      if(pc.items.length){ showPrecheck(pc); return; }
+    }catch(e){ showErr(e.message); return; }
+    finally{ setBusy(false); $('#go').disabled=false; }
+    $('#go').disabled = true;
+  }
+  setBusy(true,'Starte Berechnung …'); showProgress(0, '', 0);
   try{
     const r = await fetch(`api/job/${job.id}/generate`,{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({roles,options,lmd_name})});
@@ -434,6 +454,34 @@ function showProgress(frac, text, elapsed){
   let tt = elapsed ? `läuft seit ${fmtTime(elapsed)}` : '';
   if(elapsed > 3 && frac > 0.05 && frac < 1) tt += ` · noch etwa ${fmtTime(elapsed*(1-frac)/frac)}`;
   $('#ptime').textContent = tt;
+}
+
+// Befunde der Vorprüfung anzeigen; Berechnung erst nach Zustimmung
+function showPrecheck(pc){
+  enable('#s3',true);
+  window._preView = pc.view;
+  const nF = pc.items.filter(i=>i.level==='fehler').length, nH = pc.items.length - nF;
+  const head = nF ? `Vorprüfung: ${nF} ${nF===1?'Problem':'Probleme'}${nH?` und ${nH} ${nH===1?'Hinweis':'Hinweise'}`:''} – noch nichts berechnet`
+                  : `Vorprüfung: ${nH} ${nH===1?'Hinweis':'Hinweise'} – noch nichts berechnet`;
+  const sug = pc.suggestion ? `<div class="sugg"><p style="margin:0 0 6px">${esc(pc.suggestion.text)}</p>${pc.suggestion.tool && pc.suggestion.tool!==$('#o_iso').value
+      ? `<button type="button" id="pcTake">„${esc(pc.suggestion.tool)}“ übernehmen und neu prüfen</button>`:''}</div>` : '';
+  $('#result').innerHTML = `
+    <div class="verdict ${nF?'bad':'warnv'}">${head}</div>
+    ${sug}
+    <ul class="checks">${pc.items.map(i=>{
+      const cls = i.level==='fehler' ? 'b' : 'h';
+      return (i.x!==null && i.x!==undefined)
+        ? `<li class="${cls} spot" role="button" tabindex="0" data-pre="1" data-side="${i.side}" data-x="${i.x}" data-y="${i.y}">${esc(i.text)} <span class="show">zeigen</span></li>`
+        : `<li class="${cls}">${esc(i.text)}</li>`; }).join('')}</ul>
+    <div class="pcbtns">
+      <button type="button" class="primary" id="pcForce">Trotzdem berechnen</button>
+      <p class="hint" style="margin:0">oder Einstellungen in Schritt 2 ändern und „LMD erzeugen“ erneut drücken.</p>
+    </div>`;
+  $('#pcForce').onclick = ()=>generate(true);
+  if($('#pcTake')) $('#pcTake').onclick = ()=>{ $('#o_iso').value = pc.suggestion.tool; $('#o_iso').dispatchEvent(new Event('input')); generate(); };
+  // Platinenansicht mit Kupfer und allen Befunden
+  const first = pc.items.find(i=>i.x!==null && i.x!==undefined);
+  if(first) showSpot(document.querySelector('#result .spot'));
 }
 
 function resetResult(){
@@ -547,7 +595,8 @@ function showSpot(el){
   const all=[...document.querySelectorAll('.spot')];
   all.forEach(s=>s.classList.toggle('active', s===el || (s.dataset.side===el.dataset.side && s.dataset.x===el.dataset.x && s.dataset.y===el.dataset.y)));
   const more = all.filter(s=>s.dataset.side===el.dataset.side).map(s=>({x:+s.dataset.x, y:+s.dataset.y}));
-  Player.focus(job.id, stamp, el.dataset.side, +el.dataset.x, +el.dataset.y, el.textContent.replace(/\s*zeigen$/,''), more);
+  Player.focus(job.id, stamp, el.dataset.side, +el.dataset.x, +el.dataset.y, el.textContent.replace(/\s*zeigen$/,''), more,
+               el.dataset.pre ? window._preView : null);
   if(window.innerWidth<=900) $('#stage').scrollIntoView({behavior:'smooth', block:'start'});
 }
 document.addEventListener('click', e=>{ const el=e.target.closest('.spot'); if(el) showSpot(el); });
@@ -714,6 +763,7 @@ const Player = (()=>{
   function info(){
     const n=ph.items.length; $('#pSlider').value=step;
     const mk = mark ? `<br><span style="color:var(--bad)"><b>Markiert:</b> ${esc(mark.text)}</span>` : '';
+    if(n===0){ $('#pInfo').innerHTML=`<b>${esc(ph.label)}</b>: Kupfer und Befunde, noch keine Fräsbahnen berechnet.`+mk; return; }
     if(step===0){ const e=Estimate.phase(ph); $('#pInfo').innerHTML=`<b>${esc(ph.label)}</b>: ${n} Schritte, Leerweg gesamt ${Math.round(cum[n])} mm, geschätzt <b>${fmtTime(e.time)}</b>. Mit ▶ oder „Abspielen“ starten.`+mk; return; }
     const it=ph.items[step-1], tool=ph.tools[it.t]||['?',0], prev=step>1?ph.items[step-2]:null;
     const change = !prev || prev.t!==it.t;
@@ -723,8 +773,13 @@ const Player = (()=>{
       + (it.k==='d'? ` · X ${it.c[0].toFixed(2)} Y ${it.c[1].toFixed(2)}` : '') + mk;
   }
   // Problemstelle anzeigen: passende Seite, alle Bahnen eingezeichnet, auf die Stelle gezoomt
-  async function focus(id, st, side, x, y, text, more){
-    await open(id, st);
+  function useData(d, k){
+    if(k===key) return;
+    key=k; data=d;
+    $('#pPhase').innerHTML = data.phases.map((p,i)=>`<option value="${i}">${esc(p.label)}${p.items.length?` (${p.items.length})`:''}</option>`).join('');
+  }
+  async function focus(id, st, side, x, y, text, more, pre){
+    if(pre) useData(pre, 'pre|'+id+'|'+JSON.stringify(pre.bounds)); else await open(id, st);
     if(!data) return;
     let i = data.phases.findIndex(p => sideOf(p)===side && p.phase.startsWith('Milling'));
     if(i<0) i = data.phases.findIndex(p => p.phase.startsWith('Drilling'));

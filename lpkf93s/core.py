@@ -586,3 +586,81 @@ def drill_summary(drills, top=None, bottom=None, template=TEMPLATE):
         out.append(g)
     drills_avail = [(t[3], round(t[2] * 1e3, 3)) for t in P[('DrillingPlated', 'DrillPlated')]['tools'] if t[1] == 1]
     return dict(groups=out, drills=drills_avail)
+
+
+def precheck(inp: Inputs, opt: Options = None, template=TEMPLATE):
+    """Schnelle Vorprüfung vor der Fräsweg-Berechnung (ohne Bahnen zu rechnen).
+    Liefert dict(items=[dict(level 'fehler'|'hinweis', text, side, x, y)], suggestion, board, copper)."""
+    opt = opt or Options()
+    items = []
+    phases = load_template(template)
+    P = {(p['phase'], p['layer']): p for p in phases}
+    og, l0 = gerber.read_gerber(inp.outline)
+    board, _ = gerber.outline_polygon(l0, og if not og.is_empty else None)
+    copper = {}
+    min_gap = None
+    for side, txt, key in (('Top', inp.top, ('MillingTop', 'InsulateTop')),
+                           ('Bottom', inp.bottom, ('MillingBottom', 'InsulateBottom'))):
+        if not txt:
+            continue
+        cu, _ = gerber.read_gerber(txt)
+        copper[side] = cu
+        _, d_iso = tool_of(P[key], opt.iso_tool)
+        for text, x, y in clearance_warnings(cu, d_iso, side):
+            items.append(dict(level='fehler', text=text, side=side, x=round(x, 3), y=round(y, 3)))
+        # kleinster Abstand überhaupt – für den Fräservorschlag
+        ps = polys(cu); idx = Index(ps)
+        for i, p in enumerate(ps):
+            for j in idx.query(p.buffer(0.3)):
+                if j > i:
+                    d = p.distance(ps[j])
+                    if d > 0 and (min_gap is None or d < min_gap):
+                        min_gap = d
+        outside = cu.difference(Polygon(board.exterior).buffer(0.01))
+        if outside.area > 0.05:
+            q = outside.representative_point()
+            items.append(dict(level='hinweis', side=side, x=round(q.x, 3), y=round(q.y, 3),
+                              text='%s: %.1f mm² Kupfer liegen außerhalb des Platinenumrisses (wird beim Konturfräsen abgetrennt) bei X=%.2f Y=%.2f'
+                                   % (side, outside.area, q.x, q.y)))
+    # Bohrungen
+    for txt, plated in inp.drills:
+        ph = P[('DrillingPlated', 'DrillPlated') if plated else ('DrillingUnplated', 'DrillUnplated')]
+        max_drill = max(t[2] for t in ph['tools'] if t[1] == 1) * 1e3
+        _, d_router = tool_of(ph, opt.hole_router)
+        shell = Polygon(board.exterior)   # Umriss ohne Aussparungen (EAGLE zeichnet Kreise um Montagelöcher)
+        for h in gerber.read_excellon(txt):
+            pt = Point(h[1], h[2])
+            if not shell.contains(pt):
+                items.append(dict(level='fehler', side='Top', x=h[1], y=h[2],
+                                  text='Bohrung Ø%.2f liegt außerhalb der Platine bei X=%.2f Y=%.2f' % (h[0], h[1], h[2])))
+            t = drill_tool(ph, h[0], max_drill, opt.drill_map)
+            if t is None and (h[0] - d_router) / 2 < 0.05:
+                items.append(dict(level='fehler', side='Top', x=h[1], y=h[2],
+                                  text='Bohrung Ø%.2f ist größer als der größte Bohrer, aber zu klein für %s (bei X=%.2f Y=%.2f)'
+                                       % (h[0], opt.hole_router, h[1], h[2])))
+    # Restring durch gewählte Bohrer
+    if inp.drills and opt.drill_map:
+        s = drill_summary(inp.drills, inp.top, inp.bottom, template)
+        dia = dict(s['drills'])
+        for g in s['groups']:
+            want = opt.drill_map.get(g['key'])
+            if want and want in dia and g['pad_r'] is not None:
+                ring = g['pad_r'] - dia[want] / 2
+                if ring < 0.05:
+                    items.append(dict(level='hinweis', side=None, x=None, y=None,
+                                      text='Bohrungen Ø%.2f mit %s: Restring nur %.2f mm – das Pad wird praktisch weggebohrt'
+                                           % (g['d'], want, max(ring, 0))))
+    # Vorschlag: größter Isolierfräser, der überall durchpasst
+    suggestion = None
+    if any(i['text'].find('Abstand') >= 0 for i in items) and min_gap:
+        cands = [(t[2] * 1e3, t[3]) for t in P[('MillingTop', 'InsulateTop')]['tools'] if t[1] == 0 and t[2] * 1e3 <= 0.3]
+        fits = [c for c in cands if c[0] <= min_gap - 1e-4]
+        if fits:
+            d, name = max(fits)
+            suggestion = dict(tool=name, dia=d, min_gap=round(min_gap, 3),
+                              text='Kleinster Abstand im Layout: %.3f mm. Der Fräser „%s“ (Ø%.2f mm) passt überall durch.'
+                                   % (min_gap, name, d))
+        else:
+            suggestion = dict(tool=None, min_gap=round(min_gap, 3),
+                              text='Kleinster Abstand im Layout: %.3f mm – kein Isolierfräser der Bibliothek ist so fein. Layout anpassen.' % min_gap)
+    return dict(items=items, suggestion=suggestion, board=board, copper=copper)
