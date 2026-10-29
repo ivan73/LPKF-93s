@@ -144,7 +144,7 @@ Phasen- und Werkzeugtabelle stammen aus einer CircuitCAM-4.0-Datei der LBS Meran
 
 Warnungen (z. B. „Abstand 0,152 mm < Fräser 0,20 mm“) und Prüffehler (Kurzschluss, Kupfer angefräst, fehlende Bohrung)
 sind im Ergebnis anklickbar. Ein Klick öffnet die Vektoransicht der richtigen Seite mit allen Bahnen und dem Kupfer,
-zoomt auf die Stelle und markiert sie. Bei Kurzschlüssen wird die engste Stelle zwischen den verbundenen
+zoomt auf einen Ausschnitt von etwa 15 mm und markiert die Stelle; weitere Problemstellen derselben Seite erscheinen blass, die angeklickte Meldung ist in der Liste hervorgehoben. Bei Kurzschlüssen wird die engste Stelle zwischen den verbundenen
 Kupferflächen gezeigt, also genau dort, wo der Fräser nicht durchkommt.
 
 Abhilfe bei zu engen Abständen: einen feineren Isolierfräser wählen (z. B. `End Mill (RF) 0.15 mm`,

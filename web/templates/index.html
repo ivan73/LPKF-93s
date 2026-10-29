@@ -88,6 +88,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:13px;margin-top:8px}
 .pcanvas canvas{position:absolute;inset:0;width:100%;height:100%;cursor:grab;touch-action:none}
 .spot{cursor:pointer;border-radius:3px}
 .spot:hover,.spot:focus-visible{background:color-mix(in srgb,var(--bad) 8%,transparent)}
+.spot.active{background:color-mix(in srgb,var(--bad) 14%,transparent);box-shadow:inset 3px 0 0 var(--bad)}
 .spot .show{font-size:12px;text-decoration:underline;white-space:nowrap;color:var(--ink)}
 .drilltab{width:100%;border-collapse:collapse;font-size:13.5px}
 .drilltab td,.drilltab th{padding:4px 3px;border-bottom:1px solid var(--line);vertical-align:middle}
@@ -506,7 +507,11 @@ function showSpot(el){
   if(!job) return;
   document.querySelectorAll('.sidebar button').forEach(b=>b.setAttribute('aria-pressed', b.dataset.side==='seq'));
   curSide='seq'; $('#stage').classList.add('seq');
-  Player.focus(job.id, stamp, el.dataset.side, +el.dataset.x, +el.dataset.y, el.textContent.replace(/\s*zeigen$/,''));
+  // angeklickte Meldung (und gleichortige) in der Liste hervorheben
+  const all=[...document.querySelectorAll('.spot')];
+  all.forEach(s=>s.classList.toggle('active', s===el || (s.dataset.side===el.dataset.side && s.dataset.x===el.dataset.x && s.dataset.y===el.dataset.y)));
+  const more = all.filter(s=>s.dataset.side===el.dataset.side).map(s=>({x:+s.dataset.x, y:+s.dataset.y}));
+  Player.focus(job.id, stamp, el.dataset.side, +el.dataset.x, +el.dataset.y, el.textContent.replace(/\s*zeigen$/,''), more);
   if(window.innerWidth<=900) $('#stage').scrollIntoView({behavior:'smooth', block:'start'});
 }
 document.addEventListener('click', e=>{ const el=e.target.closest('.spot'); if(el) showSpot(el); });
@@ -588,7 +593,7 @@ const Estimate = (()=>{
 // ---------- Ablauf-Player: Reihenfolge der Bahnen so, wie sie in der LMD stehen
 const Player = (()=>{
   const cv = $('#pCanvas'), ctx = cv.getContext('2d');
-  let data=null, key=null, ph=null, step=0, timer=null, view=null, drag=null, cum=[], mark=null;
+  let data=null, key=null, ph=null, step=0, timer=null, view=null, drag=null, cum=[], mark=null, others=[];
   const COL = {done:'#2f6b4f', cur:'#b5652a', rapid:'#b5652a', todo:'#c9cfc6', board:'#9aa39e', drillDone:'#1d2a26',
                copper:'rgba(214,160,92,0.35)', copperEdge:'rgba(181,101,42,0.55)', mark:'#b3261e'};
   const sideOf = p => p.phase==='MillingBottom' ? 'Bottom' : 'Top';
@@ -604,7 +609,7 @@ const Player = (()=>{
     } else { resize(); }
   }
   function selectPhase(i, keepMark){
-    stop(); ph = data.phases[+i]; step = 0; view=null; if(!keepMark) mark=null;
+    stop(); ph = data.phases[+i]; step = 0; view=null; if(!keepMark){ mark=null; others=[]; }
     // aufsummierter Leerweg je Schritt
     cum=[0]; let last=null;
     // nach einem Werkzeugwechsel kommt die Maschine von der Wechselposition – dieser Weg zählt nicht
@@ -660,7 +665,10 @@ const Player = (()=>{
     }
     // Absenkpunkt des aktuellen Schritts
     if(step>0 && step<n){ const it=ph.items[step-1]; ctx.strokeStyle=COL.cur; ctx.lineWidth=2*dpr; ctx.beginPath(); ctx.arc(X(it.c[0]),Y(it.c[1]),6*dpr,0,7); ctx.stroke(); }
-    // markierte Problemstelle
+    // weitere Problemstellen derselben Seite (blass), die angeklickte kräftig
+    if(mark){ ctx.strokeStyle=COL.mark; ctx.globalAlpha=0.45; ctx.lineWidth=1.5*dpr;
+      for(const o of others){ if(o.x===mark.x && o.y===mark.y) continue; ctx.beginPath(); ctx.arc(X(o.x),Y(o.y),Math.max(8*dpr,0.3*view.s),0,7); ctx.stroke(); }
+      ctx.globalAlpha=1; }
     if(mark){ const mx=X(mark.x), my=Y(mark.y), r=Math.max(14*dpr, 0.5*view.s);
       ctx.strokeStyle=COL.mark; ctx.lineWidth=2.5*dpr; ctx.beginPath(); ctx.arc(mx,my,r,0,7); ctx.stroke();
       ctx.lineWidth=1.5*dpr; ctx.beginPath(); ctx.moveTo(mx-r*1.6,my); ctx.lineTo(mx-r*0.6,my); ctx.moveTo(mx+r*0.6,my); ctx.lineTo(mx+r*1.6,my);
@@ -679,17 +687,17 @@ const Player = (()=>{
       + (it.k==='d'? ` · X ${it.c[0].toFixed(2)} Y ${it.c[1].toFixed(2)}` : '') + mk;
   }
   // Problemstelle anzeigen: passende Seite, alle Bahnen eingezeichnet, auf die Stelle gezoomt
-  async function focus(id, st, side, x, y, text){
+  async function focus(id, st, side, x, y, text, more){
     await open(id, st);
     if(!data) return;
     let i = data.phases.findIndex(p => sideOf(p)===side && p.phase.startsWith('Milling'));
     if(i<0) i = data.phases.findIndex(p => p.phase.startsWith('Drilling'));
     if(i<0) i = 0;
     $('#pPhase').value = i;
-    mark = {x, y, text};
+    mark = {x, y, text}; others = more||[];
     selectPhase(i, true);
     step = ph.items.length;
-    const W=cv.width, H=cv.height, s = Math.min(W,H)/4.0;          // ca. 4 mm Ausschnitt
+    const W=cv.width, H=cv.height, s = Math.min(W,H)/15;           // ca. 15 mm Ausschnitt, Umgebung bleibt erkennbar
     view = {s, ox: W/2 - x*s, oy: H/2 + y*s};
     draw();
   }
