@@ -72,6 +72,23 @@ details summary{cursor:pointer;color:var(--muted);font-size:13px;margin-top:8px}
 .sidebar button{font-size:14px;padding:5px 12px;border-width:1px;border-color:var(--line)}
 .sidebar button[aria-pressed=true]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
 .sidebar .open{margin-left:auto;font-size:13px;color:var(--muted);align-self:center}
+.player{display:none;flex:1;flex-direction:column;padding:8px 10px 10px;gap:8px;min-height:0}
+.stage.seq .player{display:flex}
+.stage.seq .preview{display:none!important}
+.stage.seq #pvOpen{visibility:hidden}
+.pctl{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.pctl button{font-size:14px;padding:4px 10px;border-width:1px;min-width:36px}
+.pctl select{font-size:14px}
+.pctl input[type=range]{flex:1;min-width:160px;accent-color:var(--copper)}
+.pinfo{font-size:13px;color:var(--muted);min-height:2.6em}
+.pinfo b{color:var(--ink);font-weight:600}
+.stage.seq{height:calc(100vh - 24px)}
+@media (max-width:900px){.stage.seq{height:auto}}
+.pcanvas{flex:1;min-height:360px;position:relative;background:#fff;border-radius:3px;border:1px solid var(--line)}
+.pcanvas canvas{position:absolute;inset:0;width:100%;height:100%;cursor:grab;touch-action:none}
+.plegend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px;color:var(--muted)}
+.plegend i{display:inline-block;width:18px;height:0;border-top:2.5px solid;vertical-align:middle;margin-right:5px}
+@media (max-width:900px){.pcanvas{min-height:62vw}}
 .drop{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;
   margin:16px;border:2px dashed var(--line);border-radius:6px;padding:40px 20px;cursor:pointer}
 .drop.over{border-color:var(--copper);background:color-mix(in srgb,var(--copper) 6%,transparent)}
@@ -212,7 +229,23 @@ section.history td,section.history th{padding:7px 10px}
     <div class="sidebar" role="group" aria-label="Seite der Vorschau">
       <button type="button" data-side="MillingTop" aria-pressed="true">Bestückungsseite</button>
       <button type="button" data-side="MillingBottom" aria-pressed="false">Lötseite (ungespiegelt)</button>
+      <button type="button" data-side="seq" aria-pressed="false">Ablauf</button>
       <a class="open" id="pvOpen" target="_blank">groß öffnen</a>
+    </div>
+    <div class="player" id="player">
+      <div class="pctl">
+        <select id="pPhase" aria-label="Phase"></select>
+        <button type="button" id="pFirst" title="An den Anfang" aria-label="An den Anfang">|◀</button>
+        <button type="button" id="pPrev" title="Schritt zurück (Pfeil links)" aria-label="Schritt zurück">◀</button>
+        <button type="button" id="pPlay" title="Abspielen (Leertaste)">Abspielen</button>
+        <button type="button" id="pNext" title="Schritt vor (Pfeil rechts)" aria-label="Schritt vor">▶</button>
+        <button type="button" id="pLast" title="Ans Ende" aria-label="Ans Ende">▶|</button>
+        <select id="pSpeed" aria-label="Geschwindigkeit"><option value="2">langsam</option><option value="8" selected>normal</option><option value="40">schnell</option></select>
+      </div>
+      <div class="pctl"><input type="range" id="pSlider" min="0" max="0" value="0" aria-label="Schritt"></div>
+      <div class="pinfo" id="pInfo" aria-live="polite"></div>
+      <div class="pcanvas"><canvas id="pCanvas"></canvas></div>
+      <div class="plegend"><span><i style="border-color:#2f6b4f"></i>schon gefräst</span><span><i style="border-color:#b5652a;border-top-width:4px"></i>aktueller Schritt</span><span><i style="border-color:#b5652a;border-top-style:dashed"></i>Leerweg (Fräser oben)</span><span><i style="border-color:#c9cfc6"></i>noch offen</span><span>Mausrad zoomt, ziehen verschiebt, Doppelklick setzt zurück</span></div>
     </div>
     <div class="preview"><a id="pvLink" target="_blank" title="Vorschau in voller Größe öffnen"><img id="pv" alt="Vorschau der Fräsbahnen"></a></div>
     <div class="busy"><div><span class="spin"></span><span id="busyText">Berechne Fräsbahnen …</span></div></div>
@@ -363,8 +396,8 @@ function showResult(j){
     <ul class="checks" style="margin-top:12px">${v.map(c=>`<li class="${c.ok?'g':'b'}">${esc(c.text)}</li>`).join('')}</ul>
     <details><summary>Protokoll (${esc(j.seconds)} s)</summary><pre class="log">${esc((j.log||[]).join('\n'))}</pre></details>`;
   const sides = j.sides || ['MillingTop'];
-  document.querySelectorAll('.sidebar button').forEach(b=>b.classList.toggle('hide', !sides.includes(b.dataset.side)));
-  showSide(sides.includes(curSide) ? curSide : sides[0]);
+  document.querySelectorAll('.sidebar button').forEach(b=>b.classList.toggle('hide', b.dataset.side!=='seq' && !sides.includes(b.dataset.side)));
+  showSide(sides.includes(curSide) || curSide==='seq' ? curSide : sides[0]);
   $('#stage').classList.add('has-preview');
 }
 
@@ -372,10 +405,125 @@ let curSide = 'MillingTop', stamp = Date.now();
 function showSide(s){
   curSide = s;
   document.querySelectorAll('.sidebar button').forEach(b=>b.setAttribute('aria-pressed', b.dataset.side===s));
+  $('#stage').classList.toggle('seq', s==='seq');
+  if(s==='seq'){ Player.open(job.id, stamp); return; }
+  Player.stop();
   const src = `job/${job.id}/preview/${s}.png?t=${stamp}`;
   $('#pv').src = src; $('#pvLink').href = src; $('#pvOpen').href = src;
 }
 document.querySelectorAll('.sidebar button').forEach(b=>b.onclick=()=>showSide(b.dataset.side));
+
+// ---------- Ablauf-Player: Reihenfolge der Bahnen so, wie sie in der LMD stehen
+const Player = (()=>{
+  const cv = $('#pCanvas'), ctx = cv.getContext('2d');
+  let data=null, key=null, ph=null, step=0, timer=null, view=null, drag=null, cum=[];
+  const COL = {done:'#2f6b4f', cur:'#b5652a', rapid:'#b5652a', todo:'#c9cfc6', board:'#9aa39e', drillDone:'#1d2a26'};
+
+  async function open(id, st){
+    const k = id+'|'+st;
+    if(k!==key){
+      key=k; data=null; $('#pInfo').textContent='Lade Ablauf …';
+      try{ const r=await fetch(`api/job/${id}/sequence?t=${st}`); if(!r.ok) throw new Error(r.statusText); data=await r.json(); }
+      catch(e){ $('#pInfo').textContent='Ablauf konnte nicht geladen werden: '+e.message; return; }
+      $('#pPhase').innerHTML = data.phases.map((p,i)=>`<option value="${i}">${esc(p.label)} (${p.items.length})</option>`).join('');
+      selectPhase(0);
+    } else { resize(); }
+  }
+  function selectPhase(i){
+    stop(); ph = data.phases[+i]; step = 0; view=null;
+    // aufsummierter Leerweg je Schritt
+    cum=[0]; let last=null;
+    // nach einem Werkzeugwechsel kommt die Maschine von der Wechselposition – dieser Weg zählt nicht
+    ph.items.forEach((it,k)=>{ const s=[it.c[0],it.c[1]]; const prev=ph.items[k-1];
+      const d = (last && prev && prev.t===it.t)? Math.hypot(s[0]-last[0], s[1]-last[1]) : 0;
+      cum.push(cum[k]+d); last=[it.c[it.c.length-2], it.c[it.c.length-1]]; });
+    $('#pSlider').max = ph.items.length; $('#pSlider').value = 0;
+    resize();
+  }
+  function fit(){
+    let [x0,y0,x1,y1] = data.bounds;
+    if(data.board){ data.board.forEach(([x,y])=>{x0=Math.min(x0,x);y0=Math.min(y0,y);x1=Math.max(x1,x);y1=Math.max(y1,y);}); }
+    const W=cv.width, H=cv.height, pad=16*devicePixelRatio;
+    const s=Math.min((W-2*pad)/(x1-x0), (H-2*pad)/(y1-y0));
+    return {s, ox: pad+((W-2*pad)-(x1-x0)*s)/2 - x0*s, oy: H-pad-((H-2*pad)-(y1-y0)*s)/2 + y0*s};
+  }
+  const X = x => view.ox + x*view.s, Y = y => view.oy - y*view.s;
+  function resize(){
+    const r = cv.getBoundingClientRect(); if(!r.width) return;
+    cv.width = Math.round(r.width*devicePixelRatio); cv.height = Math.round(r.height*devicePixelRatio);
+    if(!view && data) view = fit();
+    draw();
+  }
+  function strokePath(c){ ctx.beginPath(); ctx.moveTo(X(c[0]),Y(c[1])); for(let i=2;i<c.length;i+=2) ctx.lineTo(X(c[i]),Y(c[i+1])); ctx.stroke(); }
+  function draw(){
+    if(!ph || !view) return;
+    const dpr=devicePixelRatio, n=ph.items.length;
+    ctx.clearRect(0,0,cv.width,cv.height);
+    ctx.lineJoin='round'; ctx.lineCap='round';
+    if(data.board){ ctx.setLineDash([4*dpr,3*dpr]); ctx.strokeStyle=COL.board; ctx.lineWidth=1*dpr;
+      ctx.beginPath(); data.board.forEach(([x,y],i)=> i?ctx.lineTo(X(x),Y(y)):ctx.moveTo(X(x),Y(y))); ctx.stroke(); ctx.setLineDash([]); }
+    const dia = t => (ph.tools[t]||['',0.2])[1];
+    const wpx = t => Math.max(1*dpr, Math.min(dia(t)*view.s, 6*dpr));
+    // noch offen
+    ctx.strokeStyle=COL.todo;
+    for(let k=step;k<n;k++){ const it=ph.items[k];
+      if(it.k==='d'){ ctx.fillStyle=COL.todo; ctx.beginPath(); ctx.arc(X(it.c[0]),Y(it.c[1]),Math.max(2*dpr,dia(it.t)/2*view.s),0,7); ctx.fill(); }
+      else { ctx.lineWidth=1*dpr; strokePath(it.c); } }
+    // schon gefräst + Leerwege
+    for(let k=0;k<step;k++){ const it=ph.items[k], cur = (k===step-1);
+      if(k>0 && ph.items[k-1].t===it.t){ const p=ph.items[k-1].c; ctx.setLineDash([3*dpr,3*dpr]); ctx.strokeStyle=COL.rapid; ctx.globalAlpha=cur?1:0.35; ctx.lineWidth=(cur?2:1)*dpr;
+        ctx.beginPath(); ctx.moveTo(X(p[p.length-2]),Y(p[p.length-1])); ctx.lineTo(X(it.c[0]),Y(it.c[1])); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1; }
+      if(it.k==='d'){ ctx.fillStyle=cur?COL.cur:COL.drillDone; ctx.beginPath(); ctx.arc(X(it.c[0]),Y(it.c[1]),Math.max((cur?4:2.5)*dpr,dia(it.t)/2*view.s),0,7); ctx.fill(); }
+      else { ctx.strokeStyle=cur?COL.cur:COL.done; ctx.lineWidth=cur?Math.max(3*dpr,wpx(it.t)):wpx(it.t); strokePath(it.c); }
+    }
+    // Absenkpunkt des aktuellen Schritts
+    if(step>0){ const it=ph.items[step-1]; ctx.strokeStyle=COL.cur; ctx.lineWidth=2*dpr; ctx.beginPath(); ctx.arc(X(it.c[0]),Y(it.c[1]),6*dpr,0,7); ctx.stroke(); }
+    info();
+  }
+  function info(){
+    const n=ph.items.length; $('#pSlider').value=step;
+    if(step===0){ $('#pInfo').innerHTML=`<b>${esc(ph.label)}</b>: ${n} Schritte, Leerweg gesamt ${Math.round(cum[n])} mm. Mit ▶ oder „Abspielen“ starten.`; return; }
+    const it=ph.items[step-1], tool=ph.tools[it.t]||['?',0], prev=step>1?ph.items[step-2]:null;
+    const change = !prev || prev.t!==it.t;
+    $('#pInfo').innerHTML = `Schritt <b>${step}</b> von ${n} · ${it.k==='d'?'Bohrung':'Bahn'} mit <b>${esc(tool[0])}</b>`
+      + (change? ` · <b>Werkzeugwechsel</b> (Anfahrt von der Wechselposition, nicht gezählt)`:'')
+      + `<br>Leerweg bis hier ${Math.round(cum[step])} von ${Math.round(cum[n])} mm`
+      + (it.k==='d'? ` · X ${it.c[0].toFixed(2)} Y ${it.c[1].toFixed(2)}` : '');
+  }
+  function go(s){ step=Math.max(0,Math.min(ph?ph.items.length:0,s)); draw(); }
+  function play(){
+    if(!ph) return;
+    if(timer){ stop(); return; }
+    if(step>=ph.items.length) step=0;
+    $('#pPlay').textContent='Pause';
+    const tick=()=>{ if(step>=ph.items.length){ stop(); return; } go(step+1); };
+    timer=setInterval(tick, 1000/+$('#pSpeed').value);
+  }
+  function stop(){ if(timer){ clearInterval(timer); timer=null; } $('#pPlay').textContent='Abspielen'; }
+  // Bedienung
+  $('#pPhase').onchange=e=>selectPhase(e.target.value);
+  $('#pPlay').onclick=play; $('#pFirst').onclick=()=>{stop();go(0);}; $('#pLast').onclick=()=>{stop();go(1e9);};
+  $('#pPrev').onclick=()=>{stop();go(step-1);}; $('#pNext').onclick=()=>{stop();go(step+1);};
+  $('#pSlider').oninput=e=>{stop();go(+e.target.value);};
+  $('#pSpeed').onchange=()=>{ if(timer){ stop(); play(); } };
+  document.addEventListener('keydown',e=>{
+    if(!$('#stage').classList.contains('seq') || /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)&&document.activeElement.type!=='range') return;
+    if(e.key==='ArrowRight'){ stop(); go(step+1); e.preventDefault(); }
+    else if(e.key==='ArrowLeft'){ stop(); go(step-1); e.preventDefault(); }
+    else if(e.key===' '){ play(); e.preventDefault(); }
+  });
+  cv.addEventListener('wheel',e=>{ if(!view) return; e.preventDefault();
+    const r=cv.getBoundingClientRect(), mx=(e.clientX-r.left)*devicePixelRatio, my=(e.clientY-r.top)*devicePixelRatio;
+    const f=Math.exp(-e.deltaY*0.0015), ns=Math.min(Math.max(view.s*f, 1), 2000*devicePixelRatio); const k=ns/view.s;
+    view.ox = mx-(mx-view.ox)*k; view.oy = my-(my-view.oy)*k; view.s=ns; draw(); },{passive:false});
+  cv.addEventListener('pointerdown',e=>{ drag={x:e.clientX,y:e.clientY}; cv.setPointerCapture(e.pointerId); cv.style.cursor='grabbing'; });
+  cv.addEventListener('pointermove',e=>{ if(!drag||!view) return; view.ox+=(e.clientX-drag.x)*devicePixelRatio; view.oy+=(e.clientY-drag.y)*devicePixelRatio; drag={x:e.clientX,y:e.clientY}; draw(); });
+  cv.addEventListener('pointerup',()=>{ drag=null; cv.style.cursor='grab'; });
+  cv.addEventListener('dblclick',()=>{ if(data){ view=fit(); draw(); } });
+  window.addEventListener('resize',()=>{ if($('#stage').classList.contains('seq')){ const keep=view; view=null; resize(); if(keep) {} } });
+  return {open, stop};
+})();
+
 
 function setBusy(on,txt){ $('#stage').classList.toggle('working',on); if(txt) $('#busyText').textContent=txt; }
 

@@ -204,6 +204,10 @@ def generate(jid):
     with open(os.path.join(jd, 'result.LMD'), 'wb') as f: f.write(res.lmd)
     for s, png in pngs.items():
         with open(os.path.join(jd, 'preview_%s.png' % s), 'wb') as f: f.write(png)
+    with open(os.path.join(jd, 'board.json'), 'w') as f:
+        json.dump([[round(x, 3), round(y, 3)] for x, y in res.board.exterior.coords], f)
+    seqp = os.path.join(jd, 'sequence.json')
+    if os.path.exists(seqp): os.remove(seqp)
     for fm in meta['files']:
         fm['role'] = roles.get(fm['name'], fm['role'])
     meta.update(status='fertig', lmd_name=lmd_name, sides=list(pngs), options=asdict(opt), log=res.log, warnings=res.warnings,
@@ -219,6 +223,22 @@ def job_preview(jid, side):
     p = os.path.join(job_dir(jid), 'preview_%s.png' % side)
     if not os.path.exists(p): abort(404)
     return send_file(p, mimetype='image/png', max_age=0)
+
+
+@app.get('/api/job/<jid>/sequence')
+def job_sequence(jid):
+    """Ablauf (Reihenfolge der Bahnen/Bohrungen) für den Player – einmal berechnet, dann zwischengespeichert."""
+    jd = job_dir(jid)
+    p = os.path.join(jd, 'sequence.json')
+    if not os.path.exists(p):
+        lmd = os.path.join(jd, 'result.LMD')
+        if not os.path.exists(lmd): abort(404)
+        seq = preview.sequence(open(lmd, 'rb').read())
+        bp = os.path.join(jd, 'board.json')
+        seq['board'] = json.load(open(bp)) if os.path.exists(bp) else None
+        with open(p + '.tmp', 'w') as f: json.dump(seq, f, separators=(',', ':'))
+        os.replace(p + '.tmp', p)
+    return send_file(p, mimetype='application/json', max_age=0)
 
 
 @app.get('/job/<jid>/download')

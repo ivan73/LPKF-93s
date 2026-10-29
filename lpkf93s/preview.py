@@ -77,3 +77,49 @@ def render(lmd_bytes, board=None, dpi=130, only=None):
     plt.tight_layout()
     buf = io.BytesIO(); plt.savefig(buf, format='png', dpi=dpi, bbox_inches='tight', pad_inches=0.1); plt.close(fig)
     return buf.getvalue()
+
+
+PHASE_LABEL = {
+    ('MillingTop', 'InsulateTop'): 'Isolieren Top',
+    ('MillingBottom', 'InsulateBottom'): 'Isolieren Bottom (ungespiegelt)',
+    ('DrillingPlated', 'DrillPlated'): 'Bohren',
+    ('DrillingUnplated', 'DrillUnplated'): 'Bohren ohne DK',
+    ('MarkingDrills', 'DrillPlated'): 'Ankörnen',
+    ('MarkingDrills', 'DrillUnplated'): 'Ankörnen ohne DK',
+    ('CuttingOutside', 'CuttingOutside'): 'Außenkontur',
+    ('CuttingInside', 'CuttingInside'): 'Innenkontur',
+}
+
+
+def sequence(lmd_bytes):
+    """Ablauf in Dateireihenfolge für den Player der Weboberfläche (Koordinaten in mm).
+    Jede Phase: tools {nr: [name, Ø]}, items [{t: werkzeug, k: 'p' Bahn | 'd' Bohrung, c: [x0,y0,x1,y1,…]}]."""
+    _, phases = lmdio.read(lmd_bytes)
+    out = []
+    xs, ys = [], []
+    for p in phases:
+        if not p['cmds']:
+            continue
+        pl, _ = [], None
+        items = []; tool = None; cur = None; path = None
+        for op, a in p['cmds']:
+            if op == 0x10:
+                tool = a; continue
+            if op == 0x0c:
+                path = [a[0], a[1]]; items.append({'t': tool, 'k': 'p', 'c': path}); cur = a[:2]
+            elif op == 0x0d:
+                path += [a[0], a[1]]; cur = a[:2]
+            elif op == 0x11:
+                for q in arcpts(cur, *a):
+                    path += [q[0], q[1]]
+                cur = a[:2]
+            elif op == 0x0f:
+                items.append({'t': tool, 'k': 'd', 'c': [a[0], a[1]]}); cur = a[:2]
+        for it in items:
+            it['c'] = [round(v * 1e3, 3) for v in it['c']]
+            xs += it['c'][0::2]; ys += it['c'][1::2]
+        out.append(dict(phase=p['phase'], layer=p['layer'],
+                        label=PHASE_LABEL.get((p['phase'], p['layer']), '%s / %s' % (p['phase'], p['layer'])),
+                        tools={t[0]: [t[3], round(t[2] * 1e3, 3)] for t in p['tools']}, items=items))
+    bounds = [min(xs), min(ys), max(xs), max(ys)] if xs else [0, 0, 1, 1]
+    return dict(phases=out, bounds=bounds)

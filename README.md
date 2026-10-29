@@ -30,6 +30,16 @@ Aktualisieren: `git pull && sudo systemctl restart lpkf-93s`
 3. **LMD erzeugen**. Die Seite rechnet, prüft das Ergebnis selbst und zeigt die Fräsbahnen.
    Nur bei „Prüfung bestanden“ herunterladen und in BoardMaster über *Datei → Import → LMD/LPR* laden.
 
+### Reihenfolge prüfen (Ablauf)
+
+Unter der Vorschau gibt es neben „Bestückungsseite“ und „Lötseite“ den Reiter **Ablauf**. Er zeigt die Bahnen
+und Bohrungen einer Phase genau in der Reihenfolge, in der sie in der LMD stehen:
+
+* **Abspielen:** abspielen, schrittweise vor und zurück (Pfeiltasten, Leertaste), Schieberegler zum Springen
+* **Darstellung:** gefräst grün, aktueller Schritt kupferfarben mit Absenkpunkt, Leerwege gestrichelt, Offenes grau
+* **Anzeige:** Werkzeug, Werkzeugwechsel, Koordinaten der Bohrung und Leerweg bis hier bzw. gesamt
+* **Ansicht:** Mausrad zoomt, Ziehen verschiebt, Doppelklick setzt zurück
+
 ## Kommandozeile
 
     sudo apt install python3-shapely python3-matplotlib      # oder: pip install -r requirements.txt
