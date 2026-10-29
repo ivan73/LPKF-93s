@@ -35,6 +35,9 @@ def main():
     ap.add_argument('--tab-width', type=float, default=d.tab_width)
     ap.add_argument('--hole-router', default=d.hole_router)
     ap.add_argument('--no-marking', action='store_true')
+    ap.add_argument('--mark-tool', default=d.mark_tool, help='Werkzeug für MarkingDrills (Ankörnen)')
+    ap.add_argument('--drill-map', action='append', default=[], metavar='Ø=WERKZEUG',
+                    help='Bohrer je Durchmesser vorgeben, z.B. "0.61=Spiral Drill 0.8 mm" (mehrfach möglich)')
     ap.add_argument('--user', default=d.user)
     ap.add_argument('--preview', help='PNG-Vorschau')
     ap.add_argument('--verify', action='store_true', help='Ergebnis prüfen (Kupferabstand, Kurzschluss, Bohrungen)')
@@ -46,7 +49,8 @@ def main():
                       mask_top=rd(a.mask_top), mask_bottom=rd(a.mask_bottom))
     opt = core.Options(iso_tool=a.iso_tool, iso_width=a.iso_width, pad_width=a.pad_width, passes=a.passes, overlap=a.overlap, rubout_tool=a.rubout_tool,
                        rubout_overlap=a.rubout_overlap, cut_tool=a.cut_tool, tabs=a.tabs, tab_width=a.tab_width,
-                       hole_router=a.hole_router, marking=not a.no_marking, user=a.user)
+                       hole_router=a.hole_router, marking=not a.no_marking, mark_tool=a.mark_tool,
+                       drill_map={core.dkey(float(k)): v.strip() for k, v in (m.split('=', 1) for m in a.drill_map)}, user=a.user)
     res = core.generate(inp, opt, a.template)
     print('\n'.join(res.log))
     open(a.output, 'wb').write(res.lmd)

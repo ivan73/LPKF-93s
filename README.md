@@ -30,6 +30,26 @@ Aktualisieren: `git pull && sudo systemctl restart lpkf-93s`
 3. **LMD erzeugen**. Die Seite rechnet, prüft das Ergebnis selbst und zeigt die Fräsbahnen.
    Nur bei „Prüfung bestanden“ herunterladen und in BoardMaster über *Datei → Import → LMD/LPR* laden.
 
+### Bohrer je Durchmesser (z. B. Vias für Drahtbrücken)
+
+In Schritt 2 listet die Seite jeden Bohrdurchmesser aus der Excellon-Datei mit Anzahl, Art und vorgeschlagenem Bohrer.
+Vias erkennt sie an Excellon-Attributen (`ViaDrill`, z. B. KiCad), sonst geschätzt am Durchmesser (≤ 0,7 mm, „Via?“).
+Für jeden Durchmesser lässt sich ein anderer Bohrer wählen, z. B. 0,61-mm-Vias mit 0,8 mm bohren, wenn sie mit
+Drahtbrücken statt Nieten durchkontaktiert werden. Der **Restring** wird dabei live angezeigt, also der Abstand
+zwischen Bohrung und Außenrand des Pads:
+
+* grün: ab 0,15 mm, ausreichend
+* gelb: unter 0,15 mm, das Lötauge kann abreißen
+* rot: unter 0,05 mm, das Pad ist praktisch weggebohrt
+
+Wer Vias regelmäßig mit Draht lötet, stellt am besten gleich im Layout einen größeren Via-Durchmesser ein.
+Die Auswahl wird je Durchmesser gemerkt. Kommandozeile: `--drill-map "0.61=Spiral Drill 0.8 mm"`.
+
+### Ankörnen
+
+Standardwerkzeug ist `Universal Cutter 0.2 mm (8 mil)`, also derselbe Fräser wie beim Isolieren.
+Alternativ ist `Universal Cutter 0.2 mm marking` wählbar. Kommandozeile: `--mark-tool`.
+
 ### Reihenfolge prüfen (Ablauf)
 
 Unter der Vorschau gibt es neben „Bestückungsseite“ und „Lötseite“ den Reiter **Ablauf**. Er zeigt die Bahnen

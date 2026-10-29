@@ -227,3 +227,23 @@ def read_excellon(text):
             else:
                 holes.append((tools[cur], x, y, 'hole'))
     return holes
+
+
+def excellon_functions(text):
+    """Bohrfunktion je Werkzeugdurchmesser aus Excellon-Attributen (KiCad, neuere Fusion/Altium-Exporte):
+    '; #@! TA.AperFunction,Plated,PTH,ViaDrill' vor der Werkzeugdefinition. Liefert {'0.600': 'via'|'component'}."""
+    out = {}; pending = None; unit = 1.0
+    for raw in text.splitlines():
+        l = raw.strip()
+        if l.startswith('INCH'): unit = 25.4
+        if l.startswith('METRIC'): unit = 1.0
+        m = re.search(r'TA\.AperFunction,([^*\s]+)', l)
+        if m:
+            f = m.group(1).lower()
+            pending = 'via' if 'via' in f else 'component'
+            continue
+        m = re.match(r'T(\d+)(?:[FSBHZ][\d.]+)*C([\d.]+)', l)
+        if m and pending:
+            out['%.3f' % (float(m.group(2)) * unit)] = pending
+            pending = None
+    return out

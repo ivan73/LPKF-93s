@@ -178,7 +178,9 @@ def generate(jid):
         cut_tool=o.get('cut_tool') or dflt.cut_tool,
         tabs=num('tabs', int, 0, 12, dflt.tabs),
         tab_width=num('tab_width', float, 0.2, 5.0, dflt.tab_width),
-        marking=bool(o.get('marking', True)))
+        marking=bool(o.get('marking', True)),
+        mark_tool=o.get('mark_tool') or dflt.mark_tool,
+        drill_map={str(k): str(v) for k, v in (o.get('drill_map') or {}).items() if v and v != 'auto'})
     inp = core.Inputs(top=rd(pick['top'][0]) if pick['top'] else None,
                       bottom=rd(pick['bottom'][0]) if pick['bottom'] else None,
                       outline=rd(pick['outline'][0]),
@@ -223,6 +225,22 @@ def job_preview(jid, side):
     p = os.path.join(job_dir(jid), 'preview_%s.png' % side)
     if not os.path.exists(p): abort(404)
     return send_file(p, mimetype='image/png', max_age=0)
+
+
+@app.post('/api/job/<jid>/drillinfo')
+def job_drillinfo(jid):
+    """Bohrübersicht je Durchmesser für die aktuelle Lagenzuordnung (Via-Hinweis, Restring, Standardbohrer)."""
+    d = os.path.join(job_dir(jid), 'files')
+    roles = (request.get_json(force=True) or {}).get('roles', {})
+    rd = lambda n: open(os.path.join(d, safe_rel(n)), encoding='latin1').read()
+    pick = lambda r: [n for n, rr in roles.items() if rr == r]
+    drills = [(rd(n), True) for n in pick('drill')] + [(rd(n), False) for n in pick('drill_npth')]
+    top = rd(pick('top')[0]) if pick('top') else None
+    bottom = rd(pick('bottom')[0]) if pick('bottom') else None
+    try:
+        return jsonify(core.drill_summary(drills, top, bottom))
+    except Exception as e:
+        return jsonify(error=str(e)), 422
 
 
 @app.get('/api/job/<jid>/sequence')

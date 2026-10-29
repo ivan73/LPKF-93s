@@ -26,6 +26,8 @@ class Options:
     tab_width: float = 1.0
     hole_router: str = 'Contour Router 2.0 mm (79 mil)'
     marking: bool = True
+    mark_tool: str = 'Universal Cutter 0.2 mm (8 mil)'   # Werkzeug für MarkingDrills (Ankörnen)
+    drill_map: dict = field(default_factory=dict)       # {'0.610': 'Spiral Drill 0.8 mm', ...}; fehlt/'auto' = nächster Bohrer
     user: str = 'LBS-Meran'
 
 
@@ -323,8 +325,19 @@ def clearance_warnings(copper, d_tool, label):
             % (label, d, d_tool, x, y) for d, x, y in sorted(out)]
 
 
-def drill_tool(ph, d, max_drill):
-    """Nächstgelegener Spiralbohrer (bei Gleichstand der größere); None = fräsen."""
+def dkey(d):
+    """Schlüssel für einen Bohrdurchmesser aus der Excellon-Datei (mm, 3 Nachkommastellen)."""
+    return '%.3f' % d
+
+
+def drill_tool(ph, d, max_drill, drill_map=None):
+    """Bohrer für Durchmesser d: Vorgabe aus drill_map, sonst nächstgelegener Spiralbohrer
+    (bei Gleichstand der größere); None = fräsen."""
+    want = (drill_map or {}).get(dkey(d))
+    if want and want != 'auto':
+        for nr, typ, dia, name in ph['tools']:
+            if name == want:
+                return nr
     if d > max_drill + 0.05:
         return None
     best = None
@@ -430,7 +443,7 @@ def generate(inp: Inputs, opt: Options = None, template=TEMPLATE) -> Result:
             if h[3] == 'slot':
                 w = 'Langloch bei X=%.2f Y=%.2f wird nur als Bohrung am Startpunkt behandelt' % (h[1], h[2])
                 warn.append(w); log.append('  WARNUNG ' + w)
-            t = drill_tool(ph, h[0], max_drill)
+            t = drill_tool(ph, h[0], max_drill, opt.drill_map)
             if t is None: milled.append(h)
             else: groups.setdefault(t, []).append((h[1], h[2]))
         for t in sorted(groups):
@@ -453,6 +466,9 @@ def generate(inp: Inputs, opt: Options = None, template=TEMPLATE) -> Result:
             log.append('  %-30s %3d (gefräst: %s)' % (names[t_router], len(milled), ', '.join('Ø%.2f' % h[0] for h in milled)))
         if opt.marking:
             mk = P[('MarkingDrills', key[1])]
+            if opt.mark_tool and opt.mark_tool != mk['tools'][0][3]:
+                dia = tool_diameters().get(opt.mark_tool, 0.2)
+                mk['tools'] = [(1, 1, dia / 1e3, opt.mark_tool)]
             mk['cmds'].append((0x10, mk['tools'][0][0]))
             for p in order_paths([[(h[1], h[2])] * 2 for h in holes], corner):
                 mk['cmds'].append((0x0f, (p[0][0] * M, p[0][1] * M)))
@@ -477,3 +493,43 @@ def generate(inp: Inputs, opt: Options = None, template=TEMPLATE) -> Result:
     data = lmdio.write(lmdio.make_header(opt.user), phases)
     log.append('LMD: %d Bytes' % len(data))
     return Result(data, log, warn, board, stats)
+
+
+def drill_summary(drills, top=None, bottom=None, template=TEMPLATE):
+    """Übersicht je Bohrdurchmesser für die Auswahl in der Weboberfläche.
+    drills: [(excellon_text, plated)]. Liefert Liste von dict(key, d, count, plated, via, auto, pad_r)
+    pad_r = kleinster Abstand Lochmitte–Kupferrand (Top/Bottom) in mm -> Restring = pad_r - Bohrer/2."""
+    phases = load_template(template)
+    P = {(p['phase'], p['layer']): p for p in phases}
+    cus = [core_cu for core_cu in (gerber.read_gerber(t)[0] if t else None for t in (top, bottom)) if core_cu is not None]
+    cu_polys = [polys(c) for c in cus]
+    groups = {}
+    for txt, plated in drills:
+        funcs = gerber.excellon_functions(txt)
+        for h in gerber.read_excellon(txt):
+            k = (dkey(h[0]), plated)
+            g = groups.setdefault(k, dict(key=dkey(h[0]), d=h[0], count=0, plated=plated, via=None, pad_r=None))
+            g['count'] += 1
+            f = funcs.get(dkey(h[0]))
+            if f: g['via'] = (f == 'via')
+            pt = Point(h[1], h[2])
+            for ps in cu_polys:
+                for p in ps:
+                    if p.contains(pt):
+                        r = p.boundary.distance(pt)
+                        g['pad_r'] = r if g['pad_r'] is None else min(g['pad_r'], r)
+                        break
+    out = []
+    for (key, plated), g in sorted(groups.items(), key=lambda kv: (not kv[0][1], kv[1]['d'])):
+        ph = P[('DrillingPlated', 'DrillPlated') if plated else ('DrillingUnplated', 'DrillUnplated')]
+        max_drill = max(t[2] for t in ph['tools'] if t[1] == 1) * 1e3
+        t = drill_tool(ph, g['d'], max_drill)
+        g['auto'] = next((x[3] for x in ph['tools'] if x[0] == t), None) if t else 'gefräst'
+        if g['via'] is None:
+            g['via_hint'] = g['d'] <= 0.7          # Faustregel: so kleine Löcher sind meist Vias
+        else:
+            g['via_hint'] = g['via']
+        g['pad_r'] = None if g['pad_r'] is None else round(g['pad_r'], 3)
+        out.append(g)
+    drills_avail = [(t[3], round(t[2] * 1e3, 3)) for t in P[('DrillingPlated', 'DrillPlated')]['tools'] if t[1] == 1]
+    return dict(groups=out, drills=drills_avail)
