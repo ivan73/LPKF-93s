@@ -40,6 +40,23 @@ und Bohrungen einer Phase genau in der Reihenfolge, in der sie in der LMD stehen
 * **Anzeige:** Werkzeug, Werkzeugwechsel, Koordinaten der Bohrung und Leerweg bis hier bzw. gesamt
 * **Ansicht:** Mausrad zoomt, Ziehen verschiebt, Doppelklick setzt zurück
 
+### Geschätzte Fräszeit
+
+Im Ergebnis steht je Phase eine Zeitschätzung mit Schnittweg, Absenkungen, Bohrungen und Werkzeugwechseln.
+Der Ablauf-Player zeigt zusätzlich die Zeit bis zum aktuellen Schritt. Grundlage sind die **Maschinenwerte**
+im aufklappbaren Bereich darunter:
+
+| Wert | Richtwert | Herkunft |
+|---|---|---|
+| Je Bohrung / Ankörnpunkt, Absenken + Heben | 1 s | 93s-Handbuch: max. 60 Hübe/min |
+| Vorschub Konturfräser | 2 mm/s | 93s-Handbuch, Konturfräsen |
+| Vorschub Isolier- / Ausräumfräser | 10 / 8 mm/s | Annahme |
+| Leerfahrt | 30 mm/s | Annahme |
+| Werkzeugwechsel | 60 s | Annahme (manueller Wechsel) |
+
+Nach dem ersten echten Lauf am besten die Vorschübe aus der BoardMaster-Werkzeugbibliothek eintragen.
+Die Werte merkt sich der Browser.
+
 ## Kommandozeile
 
     sudo apt install python3-shapely python3-matplotlib      # oder: pip install -r requirements.txt

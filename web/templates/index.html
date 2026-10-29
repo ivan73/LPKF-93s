@@ -86,6 +86,12 @@ details summary{cursor:pointer;color:var(--muted);font-size:13px;margin-top:8px}
 @media (max-width:900px){.stage.seq{height:auto}}
 .pcanvas{flex:1;min-height:360px;position:relative;background:#fff;border-radius:3px;border:1px solid var(--line)}
 .pcanvas canvas{position:absolute;inset:0;width:100%;height:100%;cursor:grab;touch-action:none}
+.esttab{width:100%;border-collapse:collapse;font-size:13.5px;margin:4px 0 6px}
+.esttab td,.esttab th{padding:4px 4px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+.esttab td:first-child,.esttab th:first-child{text-align:left;white-space:normal}
+.esttab tr.sum td{font-weight:600;border-bottom:0}
+.mform{display:grid;grid-template-columns:1fr auto;gap:6px 10px;align-items:center;font-size:13.5px;margin-top:8px}
+.mform input{width:76px}
 .plegend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px;color:var(--muted)}
 .plegend i{display:inline-block;width:18px;height:0;border-top:2.5px solid;vertical-align:middle;margin-right:5px}
 @media (max-width:900px){.pcanvas{min-height:62vw}}
@@ -394,7 +400,17 @@ function showResult(j){
       <p class="hint" style="margin:0">Namen ändern und „LMD erzeugen“ erneut drücken. Für alte BoardMaster-Versionen kurz halten.</p>
     </div>
     <ul class="checks" style="margin-top:12px">${v.map(c=>`<li class="${c.ok?'g':'b'}">${esc(c.text)}</li>`).join('')}</ul>
+    <h2 style="font-size:15px;margin:14px 0 4px">Geschätzte Fräszeit</h2>
+    <div id="estimate"><p class="hint">Wird berechnet …</p></div>
+    <details id="mdetails"><summary>Maschinenwerte für die Schätzung</summary>
+      <div class="mform" id="mform"></div>
+      <p class="hint">Richtwerte: 60 Hübe/min (≈ 1 s je Bohrung bzw. Absenken und Heben) und 2 mm/s beim Konturfräsen stammen aus dem
+      ProtoMat-93s-Handbuch, die übrigen Werte sind Annahmen. Nach dem ersten echten Lauf die Vorschübe aus der
+      BoardMaster-Werkzeugbibliothek eintragen, dann stimmt die Schätzung besser. Die Werte werden im Browser gemerkt.</p>
+      <button type="button" class="link" id="mreset">Auf Richtwerte zurücksetzen</button>
+    </details>
     <details><summary>Protokoll (${esc(j.seconds)} s)</summary><pre class="log">${esc((j.log||[]).join('\n'))}</pre></details>`;
+  Estimate.show(j.id, stamp);
   const sides = j.sides || ['MillingTop'];
   document.querySelectorAll('.sidebar button').forEach(b=>b.classList.toggle('hide', b.dataset.side!=='seq' && !sides.includes(b.dataset.side)));
   showSide(sides.includes(curSide) || curSide==='seq' ? curSide : sides[0]);
@@ -413,6 +429,79 @@ function showSide(s){
 }
 document.querySelectorAll('.sidebar button').forEach(b=>b.onclick=()=>showSide(b.dataset.side));
 
+// ---------- Ablaufdaten (einmal je Auftrag laden, von Player und Zeitschätzung gemeinsam genutzt)
+const _seqCache = {};
+function loadSeq(id, st){
+  const k = id+'|'+st;
+  if(!_seqCache[k]) _seqCache[k] = fetch(`api/job/${id}/sequence?t=${st}`).then(r=>{ if(!r.ok) throw new Error(r.statusText); return r.json(); });
+  return _seqCache[k];
+}
+function fmtTime(s){
+  s = Math.round(s);
+  if(s < 60) return s+' s';
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), r = s%60;
+  return h ? `${h} h ${String(m).padStart(2,'0')} min` : `${m} min ${String(r).padStart(2,'0')} s`;
+}
+
+// ---------- Geschätzte Fräszeit
+const Estimate = (()=>{
+  const DEF = { feed_iso:10, feed_rub:8, feed_cut:2, rapid:30, plunge:1.0, drill:1.0, change:60 };
+  const LABEL = {
+    feed_iso:['Vorschub Isolierfräser','mm/s'], feed_rub:['Vorschub Ausräumfräser','mm/s'],
+    feed_cut:['Vorschub Konturfräser','mm/s'], rapid:['Leerfahrt','mm/s'],
+    plunge:['Absenken + Heben je Bahn','s'], drill:['Je Bohrung / Ankörnpunkt','s'], change:['Je Werkzeugwechsel','s'] };
+  let M = Object.assign({}, DEF);
+  try{ Object.assign(M, JSON.parse(localStorage.getItem('lpkf-machine'))||{}); }catch(e){}
+  let cur = null;
+
+  function feedFor(ph, dia){
+    if(ph.phase.startsWith('Cutting') || ph.phase.startsWith('Drilling')) return M.feed_cut;   // Kontur und gefräste Löcher
+    return dia < 0.5 ? M.feed_iso : M.feed_rub;
+  }
+  // Zeit einer Phase bis Schritt 'upto' (Standard: komplett)
+  function phase(ph, upto){
+    const n = upto===undefined ? ph.items.length : upto;
+    let cut=0, rapid=0, plunges=0, drills=0, changes=0, time=0, prev=null;
+    for(let k=0;k<n;k++){
+      const it=ph.items[k], tool=ph.tools[it.t]||['',0.2], dia=tool[1];
+      if(!prev || prev.t!==it.t){ changes++; time+=M.change; }
+      else { const p=prev.c, d=Math.hypot(it.c[0]-p[p.length-2], it.c[1]-p[p.length-1]); rapid+=d; time+=d/M.rapid; }
+      if(it.k==='d'){ drills++; time+=M.drill; }
+      else {
+        plunges++; time+=M.plunge;
+        let L=0; for(let i=2;i<it.c.length;i+=2) L+=Math.hypot(it.c[i]-it.c[i-2], it.c[i+1]-it.c[i-1]);
+        cut+=L; time+=L/feedFor(ph, dia);
+      }
+      prev=it;
+    }
+    return {cut, rapid, plunges, drills, changes, time};
+  }
+  function table(seq){
+    let tot = 0;
+    const rows = seq.phases.map(ph=>{ const e=phase(ph); tot+=e.time;
+      const what = e.drills ? `${e.drills} ${ph.phase==='MarkingDrills'?'Punkte':'Bohrungen'}` + (e.plunges?` + ${e.plunges} gefräst`:'')
+                            : `${Math.round(e.cut)} mm, ${e.plunges} Absenk.`;
+      return `<tr><td>${esc(ph.label)}</td><td>${what}</td><td>${e.changes}</td><td><b>${fmtTime(e.time)}</b></td></tr>`; }).join('');
+    return `<table class="esttab"><thead><tr><th>Phase</th><th>Umfang</th><th title="Werkzeugwechsel">WZW</th><th>Zeit</th></tr></thead>
+      <tbody>${rows}<tr class="sum"><td>Gesamt</td><td></td><td></td><td>${fmtTime(tot)}</td></tr></tbody></table>
+      <p class="hint" style="margin:0">Schätzung inkl. ${fmtTime(M.change)} je Werkzeugwechsel, ohne Einrichten, Wenden und Bestücken.</p>`;
+  }
+  function form(){
+    $('#mform').innerHTML = Object.keys(DEF).map(k=>`<label for="m_${k}">${LABEL[k][0]}</label>
+      <span><input type="number" id="m_${k}" min="0.1" step="0.1" value="${M[k]}"> ${LABEL[k][1]}</span>`).join('');
+    Object.keys(DEF).forEach(k=>$('#m_'+k).addEventListener('input',e=>{ const v=+e.target.value; if(v>0){ M[k]=v; save(); render(); } }));
+    $('#mreset').onclick=()=>{ M=Object.assign({},DEF); save(); form(); render(); };
+  }
+  function save(){ try{ localStorage.setItem('lpkf-machine', JSON.stringify(M)); }catch(e){} }
+  function render(){ if(cur && $('#estimate')) $('#estimate').innerHTML = table(cur); }
+  async function show(id, st){
+    form();
+    try{ cur = await loadSeq(id, st); render(); }
+    catch(e){ $('#estimate').innerHTML = `<p class="hint">Schätzung nicht möglich: ${esc(e.message)}</p>`; }
+  }
+  return {show, phase};
+})();
+
 // ---------- Ablauf-Player: Reihenfolge der Bahnen so, wie sie in der LMD stehen
 const Player = (()=>{
   const cv = $('#pCanvas'), ctx = cv.getContext('2d');
@@ -423,7 +512,7 @@ const Player = (()=>{
     const k = id+'|'+st;
     if(k!==key){
       key=k; data=null; $('#pInfo').textContent='Lade Ablauf …';
-      try{ const r=await fetch(`api/job/${id}/sequence?t=${st}`); if(!r.ok) throw new Error(r.statusText); data=await r.json(); }
+      try{ data = await loadSeq(id, st); }
       catch(e){ $('#pInfo').textContent='Ablauf konnte nicht geladen werden: '+e.message; return; }
       $('#pPhase').innerHTML = data.phases.map((p,i)=>`<option value="${i}">${esc(p.label)} (${p.items.length})</option>`).join('');
       selectPhase(0);
@@ -482,12 +571,12 @@ const Player = (()=>{
   }
   function info(){
     const n=ph.items.length; $('#pSlider').value=step;
-    if(step===0){ $('#pInfo').innerHTML=`<b>${esc(ph.label)}</b>: ${n} Schritte, Leerweg gesamt ${Math.round(cum[n])} mm. Mit ▶ oder „Abspielen“ starten.`; return; }
+    if(step===0){ const e=Estimate.phase(ph); $('#pInfo').innerHTML=`<b>${esc(ph.label)}</b>: ${n} Schritte, Leerweg gesamt ${Math.round(cum[n])} mm, geschätzt <b>${fmtTime(e.time)}</b>. Mit ▶ oder „Abspielen“ starten.`; return; }
     const it=ph.items[step-1], tool=ph.tools[it.t]||['?',0], prev=step>1?ph.items[step-2]:null;
     const change = !prev || prev.t!==it.t;
     $('#pInfo').innerHTML = `Schritt <b>${step}</b> von ${n} · ${it.k==='d'?'Bohrung':'Bahn'} mit <b>${esc(tool[0])}</b>`
       + (change? ` · <b>Werkzeugwechsel</b> (Anfahrt von der Wechselposition, nicht gezählt)`:'')
-      + `<br>Leerweg bis hier ${Math.round(cum[step])} von ${Math.round(cum[n])} mm`
+      + `<br>Leerweg bis hier ${Math.round(cum[step])} von ${Math.round(cum[n])} mm · Zeit bis hier ≈ ${fmtTime(Estimate.phase(ph, step).time)} von ${fmtTime(Estimate.phase(ph).time)}`
       + (it.k==='d'? ` · X ${it.c[0].toFixed(2)} Y ${it.c[1].toFixed(2)}` : '');
   }
   function go(s){ step=Math.max(0,Math.min(ph?ph.items.length:0,s)); draw(); }
