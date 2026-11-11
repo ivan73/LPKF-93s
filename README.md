@@ -160,6 +160,21 @@ Die Berechnung läuft im Hintergrund. Die Seite zeigt einen Balken mit dem aktue
 Kanal 2/4, Kupferfläche 56/104“), der bisherigen Dauer und einer geschätzten Restzeit. Rechnet der Pi gerade einen anderen
 Auftrag, steht dort „Wartet auf einen anderen Auftrag“.
 
+### Ansicht und Zoom
+
+„Bestückungsseite“ und „Lötseite“ zeigen alle Bahnen als Vektorgrafik **in echter Fräserbreite** über dem Kupfer:
+Isolation rot, Ausräumen blau, gefräste Bohrungen lila, Außenkontur grün, Bohrungen als Kreise.
+Zoomen geht mit dem Mausrad, den Knöpfen **+ / − / Einpassen** oder mit zwei Fingern am Touchscreen, Verschieben durch Ziehen.
+Ein Maßstabsbalken zeigt die Größe an. Weiße Stellen zwischen den Kanälen sind Kupfer, das stehen bleibt,
+aber nicht zum Layout gehört.
+
+### Reststreifen
+
+Zwischen zwei Isolationskanälen bleiben oft schmale Kupferstreifen stehen, die nicht zum Layout gehören. Mit
+„Reststreifen schmaler als … mm wegfräsen“ (Standard 0,5 mm) wird alles verbleibende Kupfer unter dieser Breite
+zusätzlich mit dem Isolierfräser abgefahren. Leiterbahnen und Pads werden nie berührt, die Prüfung kontrolliert das.
+Kommandozeile: `--sliver-width 0.5`.
+
 ### Problemstellen anzeigen
 
 Warnungen (z. B. „Abstand 0,152 mm < Fräser 0,20 mm“) und Prüffehler (Kurzschluss, Kupfer angefräst, fehlende Bohrung)

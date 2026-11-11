@@ -18,6 +18,7 @@ class Options:
     iso_width: float = 0.0     # gewünschte Isolationsbreite in mm; 0 = 'passes' Kanäle verwenden
     passes: int = 1            # nur wenn iso_width == 0
     pad_width: float = 0.0     # Pad-Freistellung: um Lötpads so breit freifräsen (mm); 0 = aus
+    sliver_width: float = 0.0  # Reststreifen schmaler als diese Breite (mm) zusätzlich wegfräsen; 0 = aus
     overlap: float = 0.3       # Mindestüberlappung benachbarter Kanäle (Anteil des Fräserdurchmessers)
     rubout_tool: str = 'End Mill 1.0 mm (39 mil)'      # '' = kein Ausräumen
     rubout_overlap: float = 0.2
@@ -337,6 +338,52 @@ def pad_clearance(copper, pads, board, d_tool, offsets):
     return [list(LineString(p).simplify(0.001).coords) for p in out if len(p) >= 2]
 
 
+def sliver_paths(copper, board, d_tool, cut_paths, d_cut_paths, max_width, min_area=0.002):
+    """Schmale Kupferreste, die zwischen den Fräsbahnen stehen bleiben und nicht zum Layout gehören,
+    zusätzlich wegfräsen. cut_paths/d_cut_paths: [(bahnen, durchmesser), …] – was bereits gefräst wird.
+    Rest = Platine − Layout-Kupfer − Gefrästes; davon alles schmaler als max_width (morphologische Öffnung).
+    Jeder Streifen wird mit Ringen im Abstand r nach innen versetzt abgefahren (deckt den Streifen ganz ab),
+    die Ringe werden überall gekappt, wo sie Layout-Kupfer berühren würden.
+    Liefert (bahnen, anzahl_streifen, fläche_mm2)."""
+    r = d_tool / 2
+    # einzeln puffern und vereinigen – unter Shapely 1.8 ein Vielfaches schneller als MultiLineString.buffer
+    milled = [LineString(p).buffer(d / 2, 8) for ps, d in cut_paths if ps and d for p in ps if len(p) >= 2]
+    rest = board.difference(copper)
+    if milled:
+        rest = rest.difference(unary_union(milled))
+    if rest.is_empty:
+        return [], 0, 0.0
+    wide = rest.buffer(-max_width / 2, 8).buffer(max_width / 2, 8)
+    thin = [p for p in polys(rest.difference(wide)) if p.area > min_area]
+    if not thin:
+        return [], 0, 0.0
+    from shapely.geometry import box
+    isl = polys(copper); idx = Index(isl); kcache = {}
+    out = []
+    for S in thin:
+        # Sperrzone nur aus den Kupferinseln in der Nähe des Streifens (gecacht) – statt der ganzen Seite
+        x0, y0, x1, y1 = S.bounds
+        near = idx.query(box(x0 - r - 0.01, y0 - r - 0.01, x1 + r + 0.01, y1 + r + 0.01))
+        for j in near:
+            if j not in kcache:
+                kcache[j] = isl[j].buffer(r + 0.002, 16)
+        local = unary_union([kcache[j] for j in near]) if near else None
+        off = 0.0
+        while True:
+            g = S.buffer(-off, 8) if off > 0 else S
+            if g.is_empty:
+                break
+            ml = MultiLineString(rings(g))
+            if local is not None and ml.intersects(local):
+                ml = ml.difference(local)
+            out += lines(ml)
+            off += r          # Ringabstand r: der innerste Ring deckt die Mitte sicher ab
+            if off > max_width:
+                break
+    out = [list(LineString(p).simplify(0.001).coords) for p in out if len(p) >= 2]
+    return out, len(thin), sum(p.area for p in thin)
+
+
 def clearance_warnings(copper, d_tool, label):
     ps = polys(copper)
     if not ps: return []
@@ -466,6 +513,13 @@ def generate(inp: Inputs, opt: Options = None, template=TEMPLATE, progress=None)
             if src is None:
                 w = '%s: Pad-Freistellung nicht möglich – weder Lötstoppmaske noch Bohrungen vorhanden' % side
                 warn.append(w); log.append('  Hinweis: ' + w)
+        if opt.sliver_width and opt.sliver_width > 0:
+            sp(0.75, '%s: Reststreifen suchen' % side)
+            sl, n_sl, a_sl = sliver_paths(copper, board, d_iso, [(iso, d_iso), (rub, d_rub)], None, opt.sliver_width)
+            iso += sl
+            log.append('  Reststreifen < %.2f mm: %d Stellen (%.2f mm²) zusätzlich weggefräst, %.0f mm Bahn' % (
+                opt.sliver_width, n_sl, a_sl, sum(LineString(p).length for p in sl)))
+            stats.setdefault(side, {})
         sp(0.78, '%s: Reihenfolge optimieren' % side)
         iso = order_paths(iso, corner); rub = order_paths(rub, iso[-1][-1] if iso else corner)
         sp(0.96, '%s: Bahnen verbinden' % side)

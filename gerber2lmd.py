@@ -19,6 +19,8 @@ def main():
     ap.add_argument('--drill-npth', action='append', default=[], help='Excellon, nicht durchkontaktiert')
     ap.add_argument('--mask-top', help='Lötstoppmaske Top (erkennt Pads für --pad-width)')
     ap.add_argument('--mask-bottom', help='Lötstoppmaske Bottom')
+    ap.add_argument('--sliver-width', type=float, default=d.sliver_width,
+                    help='Reststreifen schmaler als diese Breite (mm) zusätzlich wegfräsen, 0 = aus')
     ap.add_argument('--pad-width', type=float, default=d.pad_width,
                     help='Pad-Freistellung: um Lötpads so breit freifräsen (mm), 0 = aus')
     ap.add_argument('-o', '--output', required=True)
@@ -47,7 +49,7 @@ def main():
     inp = core.Inputs(top=rd(a.top), bottom=rd(a.bottom), outline=rd(a.outline),
                       drills=[(rd(f), True) for f in a.drill] + [(rd(f), False) for f in a.drill_npth],
                       mask_top=rd(a.mask_top), mask_bottom=rd(a.mask_bottom))
-    opt = core.Options(iso_tool=a.iso_tool, iso_width=a.iso_width, pad_width=a.pad_width, passes=a.passes, overlap=a.overlap, rubout_tool=a.rubout_tool,
+    opt = core.Options(iso_tool=a.iso_tool, iso_width=a.iso_width, pad_width=a.pad_width, sliver_width=a.sliver_width, passes=a.passes, overlap=a.overlap, rubout_tool=a.rubout_tool,
                        rubout_overlap=a.rubout_overlap, cut_tool=a.cut_tool, tabs=a.tabs, tab_width=a.tab_width,
                        hole_router=a.hole_router, marking=not a.no_marking, mark_tool=a.mark_tool,
                        drill_map={core.dkey(float(k)): v.strip() for k, v in (m.split('=', 1) for m in a.drill_map)}, user=a.user)

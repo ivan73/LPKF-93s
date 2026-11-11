@@ -177,6 +177,7 @@ def _build(jid, body):
         iso_tool=o.get('iso_tool') or dflt.iso_tool,
         iso_width=num('iso_width', float, 0.0, 5.0, dflt.iso_width),
         pad_width=num('pad_width', float, 0.0, 5.0, 0.0) if o.get('pads') else 0.0,
+        sliver_width=num('sliver_width', float, 0.0, 3.0, 0.5) if o.get('slivers', False) else 0.0,
         passes=num('passes', int, 1, 20, dflt.passes),
         overlap=num('overlap', float, 0.0, 0.9, dflt.overlap),
         rubout_tool=o.get('rubout_tool', dflt.rubout_tool) if o.get('rubout', True) else '',
@@ -256,12 +257,9 @@ def _run_job(jid, inp, opt, roles, lmd_name):
         try:
             res = core.generate(inp, opt, progress=rep(0.0, 0.75))
             ok, lines = check.verify(res.lmd, inp.top, inp.bottom, inp.outline, [t for t, _ in inp.drills],
-                                     progress=rep(0.75, 0.90))
-            pngs = {}
+                                     progress=rep(0.75, 0.99))
+            # Ansicht im Browser ist vektorbasiert (Ablaufdaten) – keine PNG-Vorschau mehr nötig
             sides = preview.sides_present(res.lmd)
-            for k, s in enumerate(sides):
-                _set_progress(jid, frac=round(0.90 + 0.09 * k / len(sides), 4), text='Vorschau %s' % ('Top' if s == 'MillingTop' else 'Bottom'))
-                pngs[s] = preview.render(res.lmd, res.board, dpi=110, only=s)
         except Exception as e:  # Fehler in Eingabedaten verständlich zurückgeben
             meta.update(status='Fehler', error=str(e)); save_meta(jid, meta)
             _set_progress(jid, state='fehler', text='Verarbeitung fehlgeschlagen: %s' % e)
@@ -269,8 +267,6 @@ def _run_job(jid, inp, opt, roles, lmd_name):
 
         jd = os.path.join(JOBS, jid)
         with open(os.path.join(jd, 'result.LMD'), 'wb') as f: f.write(res.lmd)
-        for s, png in pngs.items():
-            with open(os.path.join(jd, 'preview_%s.png' % s), 'wb') as f: f.write(png)
         cu_json = _copper_json(res.copper)
         with open(os.path.join(jd, 'copper.json'), 'w') as f:
             json.dump(cu_json, f, separators=(',', ':'))
@@ -280,7 +276,7 @@ def _run_job(jid, inp, opt, roles, lmd_name):
         if os.path.exists(seqp): os.remove(seqp)
         for fm in meta['files']:
             fm['role'] = roles.get(fm['name'], fm['role'])
-        meta.update(status='fertig', lmd_name=lmd_name, sides=list(pngs), options=asdict(opt), log=res.log, warnings=res.warnings,
+        meta.update(status='fertig', lmd_name=lmd_name, sides=sides, options=asdict(opt), log=res.log, warnings=res.warnings,
                     verify=[dict(ok=g, text=t, loc=l) for g, t, l in lines], verify_ok=ok, stats=res.stats,
                     marks=res.marks, seconds=round(time.time() - t0, 1), error=None)
         save_meta(jid, meta)
