@@ -12,6 +12,7 @@ ROLES = {
     'drill_npth': 'Bohrungen ohne DK',
     'mask_top': 'Lötstopp Top',
     'mask_bottom': 'Lötstopp Bottom',
+    'dxf': 'DXF-Zeichnung (Frontplatte)',
     'ignore': 'nicht verwenden',
 }
 
@@ -32,6 +33,13 @@ def is_excellon(text):
     return bool(re.search(r'^\s*M48\s*$', head, re.M)) or bool(re.search(r'^T\d+C[\d.]+', head, re.M))
 
 
+def is_dxf(name, text):
+    head = text[:400]
+    return (name.endswith('.dxf') and ('SECTION' in text[:4000] or head.startswith('AutoCAD Binary DXF'))) \
+        or bool(re.match(r'\s*0\s*\r?\n\s*SECTION\s*\r?\n\s*2\s*\r?\n\s*(HEADER|CLASSES|TABLES|BLOCKS|ENTITIES)', head)) \
+        or head.startswith('AutoCAD Binary DXF')
+
+
 def is_gerber(text):
     return '%FS' in text[:4000] or '%MO' in text[:4000]
 
@@ -39,6 +47,10 @@ def is_gerber(text):
 def detect(filename, text):
     """Liefert (rolle, begründung)."""
     name = os.path.basename(filename).lower()
+    if is_dxf(name, text):
+        return 'dxf', 'DXF-Zeichnung'
+    if name.endswith('.dwg'):
+        return 'ignore', 'DWG kann nicht gelesen werden – in AutoCAD „Speichern unter → DXF“'
     excellon = is_excellon(text)
     gerber = is_gerber(text)
     if not excellon and not gerber:

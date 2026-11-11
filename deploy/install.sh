@@ -8,7 +8,7 @@ USER_NAME="${SUDO_USER:-$(whoami)}"
 
 echo "== Pakete installieren"
 apt-get update
-apt-get install -y python3-flask python3-shapely python3-matplotlib python3-waitress
+apt-get install -y python3-flask python3-shapely python3-matplotlib python3-waitress python3-ezdxf
 
 echo "== Datenordner"
 mkdir -p "$DIR/data/.mpl"

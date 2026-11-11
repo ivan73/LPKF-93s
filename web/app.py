@@ -10,7 +10,7 @@ from dataclasses import asdict
 from flask import Flask, abort, jsonify, render_template, request, send_file
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-from lpkf93s import core, check, detect, preview  # noqa: E402
+from lpkf93s import core, check, detect, preview, dxf  # noqa: E402
 
 DATA = os.path.abspath(os.environ.get('LPKF_DATA', os.path.join(os.path.dirname(__file__), '..', 'data')))
 KEEP = int(os.environ.get('LPKF_KEEP', '60'))
@@ -132,7 +132,7 @@ def upload():
                 pass
     det = detect.detect_all(stored)
     if not project:
-        cu = [n for n, (r, _) in det.items() if r in ('top', 'bottom', 'outline')]
+        cu = [n for n, (r, _) in det.items() if r in ('dxf', 'top', 'bottom', 'outline')]
         project = os.path.basename(cu[0]).rsplit('.', 1)[0] if cu else 'platine'
     meta = dict(id=jid, name=project, created=time.strftime('%Y-%m-%d %H:%M'), status='hochgeladen',
                 files=[dict(name=n, role=r, reason=w, size=len(stored[n])) for n, (r, w) in sorted(det.items())],
@@ -160,6 +160,33 @@ def _build(jid, body):
     rd = lambda n: open(os.path.join(d, safe_rel(n)), encoding='latin1').read()
 
     pick = {r: [n for n, rr in roles.items() if rr == r] for r in detect.ROLES}
+    lmd_name = short_name(body.get('lmd_name') or meta['lmd_name']) + '.LMD'
+
+    def num(k, typ, lo, hi, default):
+        try: v = typ(o.get(k, default))
+        except (TypeError, ValueError): v = default
+        return max(lo, min(hi, v))
+    dflt = core.Options()
+
+    if pick['dxf']:
+        # Frontplatte o.ä. aus einer DXF-Zeichnung – Kupferlagen werden dann nicht verwendet
+        if len(pick['dxf']) > 1:
+            raise InputError('Bitte nur eine DXF-Zeichnung zuordnen.')
+        if any(pick[r] for r in ('top', 'bottom', 'outline', 'drill', 'drill_npth')):
+            raise InputError('DXF-Zeichnung und Gerber-Dateien bitte nicht mischen – die anderen Dateien auf „nicht verwenden“ stellen.')
+        opt = core.Options(
+            cut_tool=o.get('cut_tool') or dflt.cut_tool,
+            cut_in_tool=o.get('cut_in_tool') or dflt.cut_in_tool,
+            engrave_tool=o.get('engrave_tool') or dflt.engrave_tool,
+            tabs=num('tabs', int, 0, 12, dflt.tabs),
+            tab_width=num('tab_width', float, 0.2, 5.0, dflt.tab_width),
+            marking=bool(o.get('marking', True)),
+            mark_tool=o.get('mark_tool') or dflt.mark_tool)
+        ops = {str(k): v for k, v in (o.get('dxf_layers') or {}).items() if v in dxf.OPS}
+        unit = o.get('dxf_unit') if o.get('dxf_unit') in dxf.UNIT_CHOICES else 'auto'
+        inp = dict(dxf=os.path.join(d, safe_rel(pick['dxf'][0])), layer_ops=ops, unit=unit)
+        return meta, inp, opt, roles, lmd_name
+
     for r in ('top', 'bottom', 'outline', 'mask_top', 'mask_bottom'):
         if len(pick[r]) > 1:
             raise InputError('%s ist mehrfach zugeordnet.' % detect.ROLES[r])
@@ -167,12 +194,6 @@ def _build(jid, body):
         raise InputError('Bitte eine Datei als Platinenumriss zuordnen.')
     if not pick['top'] and not pick['bottom']:
         raise InputError('Bitte mindestens eine Kupferlage zuordnen.')
-
-    def num(k, typ, lo, hi, default):
-        try: v = typ(o.get(k, default))
-        except (TypeError, ValueError): v = default
-        return max(lo, min(hi, v))
-    dflt = core.Options()
     opt = core.Options(
         iso_tool=o.get('iso_tool') or dflt.iso_tool,
         iso_width=num('iso_width', float, 0.0, 5.0, dflt.iso_width),
@@ -193,7 +214,6 @@ def _build(jid, body):
                       drills=[(rd(n), True) for n in pick['drill']] + [(rd(n), False) for n in pick['drill_npth']],
                       mask_top=rd(pick['mask_top'][0]) if pick['mask_top'] else None,
                       mask_bottom=rd(pick['mask_bottom'][0]) if pick['mask_bottom'] else None)
-    lmd_name = short_name(body.get('lmd_name') or meta['lmd_name']) + '.LMD'
     return meta, inp, opt, roles, lmd_name
 
 
@@ -211,7 +231,7 @@ def job_precheck(jid):
     """Vorprüfung ohne Fräsweg-Berechnung: Engstellen, Bohrungen, Restring. Dauert nur Sekunden."""
     try:
         meta, inp, opt, roles, lmd_name = _build(jid, request.get_json(force=True))
-        pc = core.precheck(inp, opt)
+        pc = dxf.precheck(inp['dxf'], opt, inp['layer_ops'], inp['unit']) if isinstance(inp, dict) else core.precheck(inp, opt)
     except InputError as e:
         return jsonify(error=str(e)), 400
     except Exception as e:
@@ -221,7 +241,8 @@ def job_precheck(jid):
     view = dict(bounds=[x0, y0, x1, y1], board=[[round(x, 3), round(y, 3)] for x, y in b.exterior.coords],
                 copper=_copper_json(pc['copper']),
                 phases=[dict(phase='Milling' + s, layer='Insulate' + s, label='Kupfer %s (Vorprüfung)' % s, tools={}, items=[])
-                        for s in ('Top', 'Bottom') if s in pc['copper']])
+                        for s in ('Top', 'Bottom') if s in pc['copper']],
+                kind='dxf' if isinstance(inp, dict) else 'pcb')
     return jsonify(items=pc['items'], suggestion=pc['suggestion'], view=view)
 
 
@@ -255,9 +276,13 @@ def _run_job(jid, inp, opt, roles, lmd_name):
         rep = lambda a, b: (lambda f, t: _set_progress(jid, frac=round(a + (b - a) * f, 4), text=t))
         meta = load_meta(jid)
         try:
-            res = core.generate(inp, opt, progress=rep(0.0, 0.75))
-            ok, lines = check.verify(res.lmd, inp.top, inp.bottom, inp.outline, [t for t, _ in inp.drills],
-                                     progress=rep(0.75, 0.99))
+            if isinstance(inp, dict):   # DXF
+                res, lines = dxf.generate(inp['dxf'], opt, inp['layer_ops'], progress=rep(0.0, 0.99), unit=inp['unit'])
+                ok = all(g for g, _, _ in lines)
+            else:
+                res = core.generate(inp, opt, progress=rep(0.0, 0.75))
+                ok, lines = check.verify(res.lmd, inp.top, inp.bottom, inp.outline, [t for t, _ in inp.drills],
+                                         progress=rep(0.75, 0.99))
             # Ansicht im Browser ist vektorbasiert (Ablaufdaten) – keine PNG-Vorschau mehr nötig
             sides = preview.sides_present(res.lmd)
         except Exception as e:  # Fehler in Eingabedaten verständlich zurückgeben
@@ -276,7 +301,7 @@ def _run_job(jid, inp, opt, roles, lmd_name):
         if os.path.exists(seqp): os.remove(seqp)
         for fm in meta['files']:
             fm['role'] = roles.get(fm['name'], fm['role'])
-        meta.update(status='fertig', lmd_name=lmd_name, sides=sides, options=asdict(opt), log=res.log, warnings=res.warnings,
+        meta.update(status='fertig', lmd_name=lmd_name, sides=sides, kind='dxf' if isinstance(inp, dict) else 'pcb', options=dict(asdict(opt), **({'dxf_layers': inp['layer_ops'], 'dxf_unit': inp['unit']} if isinstance(inp, dict) else {})), log=res.log, warnings=res.warnings,
                     verify=[dict(ok=g, text=t, loc=l) for g, t, l in lines], verify_ok=ok, stats=res.stats,
                     marks=res.marks, seconds=round(time.time() - t0, 1), error=None)
         save_meta(jid, meta)
@@ -321,6 +346,23 @@ def job_drillinfo(jid):
         return jsonify(error=str(e)), 422
 
 
+@app.post('/api/job/<jid>/dxfinfo')
+def job_dxfinfo(jid):
+    """Layer der DXF-Zeichnung mit Inhalt – für die Zuordnung Layer → Bearbeitung."""
+    d = os.path.join(job_dir(jid), 'files')
+    body = request.get_json(force=True) or {}
+    roles = body.get('roles', {})
+    unit = body.get('unit') if body.get('unit') in dxf.UNIT_CHOICES else 'auto'
+    names = [n for n, r in roles.items() if r == 'dxf']
+    if not names:
+        return jsonify(error='keine DXF-Zeichnung zugeordnet'), 400
+    try:
+        return jsonify(dict(dxf.summary(os.path.join(d, safe_rel(names[0])), unit=unit), ops=list(dxf.OPS.items()),
+                            units=list(dxf.UNIT_CHOICES.items()), unit=unit))
+    except Exception as e:
+        return jsonify(error='DXF kann nicht gelesen werden: %s' % e), 422
+
+
 @app.get('/api/job/<jid>/sequence')
 def job_sequence(jid):
     """Ablauf (Reihenfolge der Bahnen/Bohrungen) für den Player – einmal berechnet, dann zwischengespeichert."""
@@ -334,6 +376,7 @@ def job_sequence(jid):
         seq['board'] = json.load(open(bp)) if os.path.exists(bp) else None
         cp = os.path.join(jd, 'copper.json')
         seq['copper'] = json.load(open(cp)) if os.path.exists(cp) else {}
+        seq['kind'] = load_meta(jid).get('kind', 'pcb')
         with open(p + '.tmp', 'w') as f: json.dump(seq, f, separators=(',', ':'))
         os.replace(p + '.tmp', p)
     return send_file(p, mimetype='application/json', max_age=0)

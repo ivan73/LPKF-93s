@@ -88,6 +88,8 @@ PHASE_LABEL = {
     ('MarkingDrills', 'DrillUnplated'): 'Ankörnen ohne DK',
     ('CuttingOutside', 'CuttingOutside'): 'Außenkontur',
     ('CuttingInside', 'CuttingInside'): 'Innenkontur',
+    ('MillingTop', 'TextTop'): 'Gravur / Text Top',
+    ('MillingBottom', 'TextBottom'): 'Gravur / Text Bottom',
 }
 
 

@@ -9,6 +9,9 @@ Zwei Wege, gleiche Rechenlogik:
   Werkzeuge wählen, Vorschau ansehen, LMD herunterladen.
 * **Kommandozeile** `gerber2lmd.py` für Skripte und den eigenen Rechner.
 
+Außerdem: **DXF-Zeichnungen** (AutoCAD & Co.) für Frontplatten, Gehäusedeckel und Ähnliches –
+Außenkontur, Ausschnitte, Bohrungen und Gravur, siehe [Frontplatten aus DXF](#frontplatten-aus-dxf).
+
 ## Raspberry Pi einrichten
 
     git clone https://github.com/ivan73/LPKF-93s.git
@@ -185,6 +188,46 @@ Kupferflächen gezeigt, also genau dort, wo der Fräser nicht durchkommt.
 Abhilfe bei zu engen Abständen: einen feineren Isolierfräser wählen (z. B. `End Mill (RF) 0.15 mm`,
 `Micro Cutter 0.13 mm` oder `0.1 mm`) oder im Layout den Mindestabstand vergrößern.
 
+## Frontplatten aus DXF
+
+Eine DXF-Datei (AutoCAD: *Speichern unter → DXF*, jede Version ab R12) einfach wie ein CAM-ZIP hochladen.
+DWG kann nicht gelesen werden, das Format ist nicht offen.
+
+Die Seite zeigt die **Layer der Zeichnung** mit ihrem Inhalt; je Layer wird die Bearbeitung gewählt:
+
+| Bearbeitung | was passiert | Phase in BoardMaster |
+|---|---|---|
+| automatisch | Kreise bis 2,4 mm bohren, größte geschlossene Kontur = Außenkontur, geschlossene Konturen darin und größere Kreise = Ausschnitte, offene Linien und Texte gravieren | je nach Teil |
+| Außenkontur | Fräser **außen** an der Linie, mit Haltestegen | CuttingOutside |
+| Ausschnitt | Fräser **innen** an der Linie (Display, Schalter, Poti-Löcher …) | CuttingInside |
+| Gravieren | Fräsermitte genau auf der Linie (Beschriftung, Skalen, Rahmen) | MillingTop / TextTop |
+| Bohren | Kreise mit dem nächstgelegenen Spiralbohrer, größere als 2,4 mm werden als Ausschnitt gefräst | DrillingUnplated |
+| nicht verwenden | Bemaßung, Hilfslinien … | – |
+
+* Außenkontur und Ausschnitte werden mit **Radiuskorrektur** gefräst, das Maß der Zeichnung bleibt also erhalten.
+  Innenecken eines Ausschnitts werden dabei mit dem Fräserradius gerundet (beim 1-mm-Fräser r = 0,5 mm).
+* Unterstützt: Linien, Bögen, Kreise, Polylinien (auch mit Bögen), Ellipsen, Splines, Blöcke (werden aufgelöst,
+  Elemente auf Layer 0 erben den Layer der Blockreferenz) sowie TEXT/MTEXT. Texte werden als Umriss graviert;
+  klappt das nicht, in AutoCAD vorher `EXPLODE` bzw. `TXTEXP` anwenden.
+* Einzelne Linien, die sich berühren (z. B. ein Rechteck aus vier LINEs), werden automatisch zu einer Kontur verbunden.
+* **Einheit:** wird aus der Datei gelesen (`$INSUNITS`). Fehlt sie (z. B. bei R12), wird mm angenommen; die Seite
+  zeigt die resultierende Größe an und die Einheit lässt sich auf mm, Zoll oder cm umstellen.
+* Nullpunkt ist die linke untere Ecke der Zeichnung.
+* Die Vorprüfung meldet offene Linien auf einem Ausschnitt-Layer (werden dann nur graviert) und Ausschnitte,
+  die für den gewählten Fräser zu klein sind. Die Stellen sind anklickbar.
+* **Reihenfolge in BoardMaster:** Gravur, Bohren, dann zuerst *CuttingInside* (Ausschnitte), zuletzt *CuttingOutside* –
+  sonst liegt das Teil beim Ausschneiden der Öffnungen schon lose.
+* Frästiefen stellt BoardMaster je Werkzeug ein. Für Aluminium oder Kunststoff die Werkzeugbibliothek anpassen;
+  dickes Material ggf. in mehreren Durchgängen (Phase mehrmals mit wachsender Tiefe starten).
+
+Kommandozeile:
+
+    python3 dxf2lmd.py frontplatte.dxf --list          # Layer und Inhalt anzeigen
+    python3 dxf2lmd.py frontplatte.dxf -o FRONT.LMD --layer Kontur=outer --layer Ausbrueche=cutout \
+        --layer Gravur=engrave --layer Bohrungen=drill --tabs 2 --preview front.png
+
+Weitere Optionen: `--unit mm|inch|cm`, `--cut-tool`, `--cut-in-tool`, `--engrave-tool`, `--tab-width`, `--no-marking`.
+
 ## Wegoptimierung
 
 * **Reihenfolge:** Erst wird jeweils die nächstgelegene Bahn bzw. Bohrung gewählt. Danach optimiert ein 2-opt-Verfahren
@@ -216,6 +259,7 @@ gut 15 % weniger Leerweg als die einfache Reihenfolge.
     lpkf93s/lmdio.py     LMD lesen/schreiben
     lpkf93s/detect.py    Lagenerkennung für Uploads
     lpkf93s/check.py     unabhängige Prüfung
+    lpkf93s/dxf.py       DXF-Import (Frontplatten): Layer → Kontur, Ausschnitt, Gravur, Bohren
     lpkf93s/preview.py   PNG-Vorschau
     web/                 Flask-Weboberfläche
     deploy/              Installationsskript und systemd-Dienst

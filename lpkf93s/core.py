@@ -23,6 +23,8 @@ class Options:
     rubout_tool: str = 'End Mill 1.0 mm (39 mil)'      # '' = kein Ausräumen
     rubout_overlap: float = 0.2
     cut_tool: str = 'End Mill 2.0 mm (79 mil) long'
+    cut_in_tool: str = 'Contour Router 1.0 mm (39 mil)'      # DXF: Ausschnitte (CuttingInside)
+    engrave_tool: str = 'Universal Cutter 0.2 mm (8 mil)'    # DXF: Gravur
     tabs: int = 0
     tab_width: float = 1.0
     hole_router: str = 'Contour Router 2.0 mm (79 mil)'
